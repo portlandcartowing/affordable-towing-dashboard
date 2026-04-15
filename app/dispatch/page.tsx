@@ -4,7 +4,7 @@ import JobCard from "@/components/dispatch/JobCard";
 import { JOB_STATUSES, type Job, type JobStatus } from "@/lib/types";
 import { AVAILABLE_PROVIDERS } from "@/lib/loadBoard";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 15;
 
 // Placeholder data — real jobs will be fetched from Supabase once the
 // `jobs` table exists. Shape matches the Job interface in lib/types.ts.

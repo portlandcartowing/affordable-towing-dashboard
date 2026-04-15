@@ -16,7 +16,10 @@ import {
   summarizeCampaigns,
 } from "@/lib/googleAds";
 
-export const dynamic = "force-dynamic";
+// Cache the rendered page for 15s so sidebar navigation is instant.
+// Server actions call revalidatePath("/dashboard") after mutations, which
+// busts this cache immediately — the UI never shows stale data after a write.
+export const revalidate = 15;
 
 const money = (n: number) =>
   n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });

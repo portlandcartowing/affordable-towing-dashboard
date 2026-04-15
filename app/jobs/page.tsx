@@ -6,7 +6,7 @@ import EmptyState from "@/components/dashboard/EmptyState";
 import SectionHeader from "@/components/dashboard/SectionHeader";
 import { getJobs, summarizeJobs } from "@/lib/jobsQueries";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 15;
 
 const money = (n: number) =>
   n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });

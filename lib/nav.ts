@@ -10,11 +10,12 @@ export type NavLink = {
 };
 
 export const NAV_LINKS: NavLink[] = [
-  { href: "/dashboard", label: "Dashboard", icon: "▦", mobile: true },
-  { href: "/calls", label: "Calls", icon: "☎", mobile: true },
-  { href: "/leads", label: "Leads", icon: "◉", mobile: true },
-  { href: "/jobs", label: "Jobs", icon: "✦", mobile: true },
-  { href: "/dispatch", label: "Dispatch", icon: "➤", mobile: true },
-  { href: "/marketing", label: "Marketing", icon: "◈" },
-  { href: "/settings", label: "Settings", icon: "✿" },
+  { href: "/dashboard",   label: "Dashboard",   icon: "▦", mobile: true },
+  { href: "/call-center", label: "Call Center", icon: "🎧", mobile: true },
+  { href: "/calls",       label: "Calls",       icon: "☎" },
+  { href: "/leads",       label: "Leads",       icon: "◉", mobile: true },
+  { href: "/jobs",        label: "Jobs",        icon: "✦", mobile: true },
+  { href: "/dispatch",    label: "Dispatch",    icon: "➤", mobile: true },
+  { href: "/marketing",   label: "Marketing",   icon: "◈" },
+  { href: "/settings",    label: "Settings",    icon: "✿" },
 ];

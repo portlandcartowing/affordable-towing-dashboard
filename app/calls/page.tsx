@@ -6,7 +6,7 @@ import { getCalls, summarizeCalls } from "@/lib/callTracking";
 import { getLeadIdsWithJobs } from "@/lib/jobsQueries";
 import { startOfToday, startOfWeek } from "@/lib/queries";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 15;
 
 export default async function CallsPage() {
   const [calls, leadIdsWithJobs] = await Promise.all([

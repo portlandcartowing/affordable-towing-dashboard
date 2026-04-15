@@ -4,7 +4,7 @@ import AddLeadModal from "@/components/leads/AddLeadModal";
 import { supabase } from "@/lib/supabase";
 import { getLeadIdsWithJobs } from "@/lib/jobsQueries";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 15;
 
 export default async function LeadsPage() {
   const [{ data, error }, leadIdsWithJobs] = await Promise.all([
