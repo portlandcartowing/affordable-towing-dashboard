@@ -51,45 +51,85 @@ export const JOB_STATUS_COLORS: Record<JobStatus, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Call — the true top of the funnel for a local towing business.
+// Tracking number — the attribution layer.
 //
-// Every billable job starts with a phone call, but the driver often does not
-// know which ad, tracking number, or channel generated it. This type is the
-// shared contract between the Calls UI, the queries layer, and (eventually)
-// a telephony provider integration (CallRail / Twilio / etc).
-//
-// Expected Supabase `calls` table columns:
-//   id                 uuid primary key default gen_random_uuid()
-//   caller_phone       text
-//   source             text           -- "google_ads" | "facebook" | "organic" | ...
-//   tracking_number    text           -- the forwarding number that was dialed
-//   started_at         timestamptz
-//   duration_seconds   integer
-//   recording_url      text
-//   transcript         text
-//   converted_to_job   boolean default false
-//   lead_id            uuid references leads(id)
-//   notes              text
-//   created_at         timestamptz default now()
+// Each phone number on an ad / GMB / website maps to one row. When a call
+// comes in via Twilio, the webhook looks up which number was dialed and
+// tags the call with its source automatically. No guessing.
 // ---------------------------------------------------------------------------
+
+export type SourceChannel = "paid" | "organic" | "direct" | "referral";
+
+export interface TrackingNumber {
+  id: UUID;
+  phone_number: string;
+  label: string;
+  source: string;        // "google_ads" | "gbp" | "website" | "facebook" | ...
+  channel: SourceChannel;
+  campaign: string | null;
+  active: boolean;
+  created_at: ISOTimestamp;
+}
+
+// ---------------------------------------------------------------------------
+// Call — the true top of the funnel.
+//
+// Dad's 5 call outcomes:
+//   booked   — creates lead + job, sends confirmation
+//   standby  — creates lead + proposal, fires SMS with accept link
+//   lost     — tags reason, preserves transcript/quote
+//   callback — schedules reminder
+//   spam     — excluded from analytics
+// ---------------------------------------------------------------------------
+
+export type CallDisposition = "booked" | "standby" | "lost" | "callback" | "spam";
+
+export const CALL_DISPOSITIONS: CallDisposition[] = [
+  "booked", "standby", "lost", "callback", "spam",
+];
+
+export const LOST_REASONS = [
+  "Too expensive",
+  "No truck available",
+  "Outside service area",
+  "Shopping around",
+  "Bad fit",
+] as const;
+
+export type LostReason = (typeof LOST_REASONS)[number];
+
+export interface TranscriptChunk {
+  speaker: "caller" | "dispatcher";
+  text: string;
+  at: ISOTimestamp;
+}
 
 export interface Call {
   id: UUID;
   caller_phone: string | null;
   source: string | null;
   tracking_number: string | null;
+  tracking_number_id: UUID | null;
   started_at: ISOTimestamp | null;
   duration_seconds: number | null;
   recording_url: string | null;
   transcript: string | null;
+  transcript_chunks: TranscriptChunk[] | null;
   converted_to_job: boolean | null;
   lead_id: UUID | null;
+  proposal_id: UUID | null;
   notes: string | null;
+  disposition: CallDisposition | null;
+  lost_reason: string | null;
+  callback_at: ISOTimestamp | null;
+  dispatcher: string | null;
+  quoted_price: number | null;
+  ai_summary: string | null;
   created_at: ISOTimestamp;
 }
 
 // ---------------------------------------------------------------------------
-// Lead — the top of the funnel. A lead can become a Job once we commit to it.
+// Lead
 // ---------------------------------------------------------------------------
 
 export interface Lead {
@@ -103,6 +143,43 @@ export interface Lead {
   booked: boolean | null;
   price: number | null;
   notes: string | null;
+  proposal_id: UUID | null;
+  call_id: UUID | null;
+}
+
+// ---------------------------------------------------------------------------
+// Proposal — the standby/follow-up system.
+//
+// Customer gets an SMS link to /proposal/[token] with quote, ETA, and a
+// big Accept button. accepted_at = legal proof of agreement.
+// ---------------------------------------------------------------------------
+
+export type ProposalStatus = "draft" | "sent" | "viewed" | "accepted" | "expired" | "cancelled";
+
+export interface Proposal {
+  id: UUID;
+  lead_id: UUID | null;
+  call_id: UUID | null;
+  token: string;
+
+  service_type: string | null;
+  quoted_price: number | null;
+  eta_min: number | null;
+  eta_max: number | null;
+  driver_area: string | null;
+  route_summary: string | null;
+  vehicle_desc: string | null;
+  pickup_address: string | null;
+  dropoff_address: string | null;
+  notes: string | null;
+
+  sent_at: ISOTimestamp | null;
+  viewed_at: ISOTimestamp | null;
+  accepted_at: ISOTimestamp | null;
+  expired_at: ISOTimestamp | null;
+
+  status: ProposalStatus;
+  created_at: ISOTimestamp;
 }
 
 // ---------------------------------------------------------------------------
