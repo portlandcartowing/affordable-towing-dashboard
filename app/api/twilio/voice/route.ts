@@ -6,7 +6,10 @@ import { supabase } from "@/lib/supabase";
 //
 // 1. Looks up tracking number → tags source
 // 2. Creates call record in Supabase
-// 3. Returns TwiML: record + forward to dispatcher's phone
+// 3. Returns TwiML that:
+//    - Records the call
+//    - Rings the browser-based Twilio Client ("driver" identity)
+//    - Falls back to phone forwarding if Client doesn't answer in 20s
 // ---------------------------------------------------------------------------
 
 export async function POST(req: NextRequest) {
@@ -17,6 +20,9 @@ export async function POST(req: NextRequest) {
     const callSid = (body.get("CallSid") as string) || null;
 
     const forwardTo = process.env.FORWARD_PHONE_NUMBER || "";
+    const baseUrl = `https://${req.headers.get("host")}`;
+    const statusCallback = `${baseUrl}/api/twilio/status`;
+    const transcriptionCallback = `${baseUrl}/api/twilio/transcription`;
 
     // Look up source from tracking_numbers table
     let source = "unknown";
@@ -36,7 +42,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Create call record
+    // Create call record in Supabase
     await supabase.from("calls").insert({
       caller_phone: callerPhone,
       source,
@@ -47,12 +53,24 @@ export async function POST(req: NextRequest) {
       notes: callSid ? `twilio_sid:${callSid}` : null,
     });
 
-    // TwiML: record the call and forward to dispatcher
-    const baseUrl = `https://${req.headers.get("host")}`;
-    const statusCallback = `${baseUrl}/api/twilio/status`;
-
+    // TwiML: record + try browser Client first, fall back to phone
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
+  <Start>
+    <Transcription
+      statusCallbackUrl="${transcriptionCallback}"
+      statusCallbackMethod="POST"
+      inboundTrackLabel="caller"
+      outboundTrackLabel="dispatcher"
+      partialResults="true"
+      languageCode="en-US" />
+  </Start>
+  <Dial record="record-from-answer-dual"
+        recordingStatusCallback="${statusCallback}"
+        recordingStatusCallbackMethod="POST"
+        timeout="20">
+    <Client>driver</Client>
+  </Dial>
   <Dial record="record-from-answer-dual"
         recordingStatusCallback="${statusCallback}"
         recordingStatusCallbackMethod="POST">
@@ -64,8 +82,7 @@ export async function POST(req: NextRequest) {
       headers: { "Content-Type": "text/xml" },
     });
   } catch (err) {
-    // If anything crashes, still return valid TwiML so the caller
-    // doesn't hear "application error"
+    // Fallback — still forward the call
     const fallback = process.env.FORWARD_PHONE_NUMBER || "";
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>

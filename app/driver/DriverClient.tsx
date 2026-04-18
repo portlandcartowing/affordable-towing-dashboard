@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { Device, Call as TwilioCall } from "@twilio/voice-sdk";
 import { parseTranscript } from "@/lib/transcriptParser";
 import {
   dispatchBooked,
@@ -11,7 +12,7 @@ import {
 import type { LostReason } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
-// Supabase Realtime client (browser-side, separate from server client)
+// Supabase Realtime (browser-side)
 // ---------------------------------------------------------------------------
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -41,10 +42,10 @@ type ExtractedInfo = {
   urgency: string | null;
 };
 
-type ScreenState = "idle" | "live" | "result";
+type ScreenState = "idle" | "ringing" | "live" | "result";
 
 // ---------------------------------------------------------------------------
-// Pricing config
+// Pricing
 // ---------------------------------------------------------------------------
 const HOOKUP_FEE = 95;
 const RATE_PER_MILE = 4;
@@ -68,12 +69,111 @@ export default function DriverClient() {
   const [resultDone, setResultDone] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const [deviceReady, setDeviceReady] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState("Connecting…");
 
-  // Calculate estimate
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const deviceRef = useRef<Device | null>(null);
+  const activeCallRef = useRef<TwilioCall | null>(null);
+
   const estimate = HOOKUP_FEE + miles * RATE_PER_MILE + (nonRunner ? NON_RUNNER_FEE : 0);
 
-  // ---- Supabase Realtime: watch for new calls ----
+  // ---- Request notification permission on mount ----
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // ---- Initialize Twilio Client Device ----
+  useEffect(() => {
+    let cancelled = false;
+
+    async function initDevice() {
+      try {
+        const res = await fetch("/api/twilio/token");
+        const data = await res.json();
+
+        if (!data.token) {
+          setConnectionStatus("Token error — run /api/twilio/setup");
+          return;
+        }
+
+        const device = new Device(data.token, {
+          logLevel: 1,
+          codecPreferences: [TwilioCall.Codec.Opus, TwilioCall.Codec.PCMU],
+        });
+
+        device.on("registered", () => {
+          if (!cancelled) {
+            setDeviceReady(true);
+            setConnectionStatus("Online — listening");
+          }
+        });
+
+        device.on("error", (err) => {
+          console.error("Twilio Device error:", err);
+          setConnectionStatus("Connection error");
+        });
+
+        device.on("incoming", (incomingCall: TwilioCall) => {
+          // Show ringing screen
+          if (!cancelled) {
+            setScreen("ringing");
+
+            // Send browser notification
+            if ("Notification" in window && Notification.permission === "granted") {
+              new Notification("Incoming Call — ACT Dispatch", {
+                body: `Call from ${incomingCall.parameters.From || "Unknown"}`,
+                icon: "/icon-192.svg",
+                tag: "incoming-call",
+                requireInteraction: true,
+              });
+            }
+
+            activeCallRef.current = incomingCall;
+
+            incomingCall.on("disconnect", () => {
+              activeCallRef.current = null;
+              // Don't reset screen — let the result buttons handle it
+            });
+
+            incomingCall.on("cancel", () => {
+              activeCallRef.current = null;
+              setScreen("idle");
+              showToast("Call cancelled by caller");
+            });
+          }
+        });
+
+        device.on("tokenWillExpire", async () => {
+          const refreshRes = await fetch("/api/twilio/token");
+          const refreshData = await refreshRes.json();
+          if (refreshData.token) {
+            device.updateToken(refreshData.token);
+          }
+        });
+
+        await device.register();
+        deviceRef.current = device;
+      } catch (err) {
+        console.error("Failed to init Twilio Device:", err);
+        setConnectionStatus("Setup needed");
+      }
+    }
+
+    initDevice();
+
+    return () => {
+      cancelled = true;
+      if (deviceRef.current) {
+        deviceRef.current.destroy();
+        deviceRef.current = null;
+      }
+    };
+  }, []);
+
+  // ---- Supabase Realtime: watch for call updates (transcript) ----
   useEffect(() => {
     const channel = realtime
       .channel("driver-calls")
@@ -84,8 +184,6 @@ export default function DriverClient() {
           const newCall = payload.new as CallRecord;
           if (newCall.disposition === "spam") return;
           setCall(newCall);
-          setScreen("live");
-          setElapsed(0);
           setExtracted({ service: null, pickup: null, dropoff: null, vehicle: null, urgency: null });
           setMiles(0);
           setNonRunner(false);
@@ -101,7 +199,6 @@ export default function DriverClient() {
           const updated = payload.new as CallRecord;
           if (call && updated.id === call.id) {
             setCall(updated);
-            // Re-extract from transcript
             if (updated.transcript) {
               const parsed = parseTranscript(updated.transcript);
               setExtracted((prev) => ({
@@ -117,34 +214,27 @@ export default function DriverClient() {
       )
       .subscribe();
 
-    return () => {
-      realtime.removeChannel(channel);
-    };
+    return () => { realtime.removeChannel(channel); };
   }, [call?.id]);
 
   // ---- Call duration timer ----
   useEffect(() => {
     if (screen === "live") {
+      setElapsed(0);
       timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
     } else if (timerRef.current) {
       clearInterval(timerRef.current);
     }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [screen]);
 
-  // ---- Result screen 10-second countdown ----
+  // ---- Result countdown ----
   useEffect(() => {
     if (screen !== "result") return;
     setResultTimer(10);
     const t = setInterval(() => {
       setResultTimer((prev) => {
-        if (prev <= 1) {
-          clearInterval(t);
-          setResultDone(true);
-          return 0;
-        }
+        if (prev <= 1) { clearInterval(t); setResultDone(true); return 0; }
         return prev - 1;
       });
     }, 1000);
@@ -156,9 +246,35 @@ export default function DriverClient() {
     setTimeout(() => setToast(null), 2500);
   };
 
-  // ---- Action handlers ----
+  // ---- Answer incoming call ----
+  const handleAnswer = () => {
+    if (activeCallRef.current) {
+      activeCallRef.current.accept();
+      setScreen("live");
+    }
+  };
+
+  // ---- Decline incoming call ----
+  const handleDecline = () => {
+    if (activeCallRef.current) {
+      activeCallRef.current.reject();
+      activeCallRef.current = null;
+    }
+    setScreen("idle");
+  };
+
+  // ---- Hang up ----
+  const handleHangup = () => {
+    if (activeCallRef.current) {
+      activeCallRef.current.disconnect();
+      activeCallRef.current = null;
+    }
+  };
+
+  // ---- Disposition handlers ----
   const handleBooked = useCallback(async () => {
     if (!call) return;
+    handleHangup();
     setScreen("result");
     await dispatchBooked(call.id, {
       customer: customerName || null,
@@ -177,6 +293,7 @@ export default function DriverClient() {
 
   const handleStandby = useCallback(async () => {
     if (!call || !call.caller_phone) return;
+    handleHangup();
     setScreen("result");
     await dispatchStandby(call.id, {
       customer: customerName || null,
@@ -191,14 +308,15 @@ export default function DriverClient() {
       driver_area: "Portland area",
       notes,
     });
-    showToast("Proposal sent to customer");
+    showToast("Proposal sent!");
   }, [call, customerName, extracted, estimate, notes]);
 
   const handleLost = useCallback(async () => {
     if (!call) return;
+    handleHangup();
     setScreen("result");
     await dispatchLost(call.id, "Shopping around" as LostReason, estimate);
-    showToast("Call marked lost");
+    showToast("Call lost");
   }, [call, estimate]);
 
   const handleReset = () => {
@@ -210,7 +328,7 @@ export default function DriverClient() {
     `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
   // =====================================================================
-  // IDLE SCREEN — waiting for calls
+  // IDLE SCREEN
   // =====================================================================
   if (screen === "idle") {
     return (
@@ -221,18 +339,65 @@ export default function DriverClient() {
         <h1 className="text-2xl font-bold mb-2">ACT Dispatch</h1>
         <p className="text-slate-400 text-sm mb-8">Waiting for incoming calls…</p>
         <div className="flex items-center gap-2">
-          <span className="relative flex h-3 w-3">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-          </span>
-          <span className="text-sm text-emerald-400 font-medium">Online — listening</span>
+          {deviceReady ? (
+            <>
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              </span>
+              <span className="text-sm text-emerald-400 font-medium">{connectionStatus}</span>
+            </>
+          ) : (
+            <>
+              <span className="w-3 h-3 rounded-full bg-amber-500 animate-pulse"></span>
+              <span className="text-sm text-amber-400 font-medium">{connectionStatus}</span>
+            </>
+          )}
         </div>
       </div>
     );
   }
 
   // =====================================================================
-  // RESULT SCREEN — 10 second post-call
+  // RINGING SCREEN — incoming call, answer or decline
+  // =====================================================================
+  if (screen === "ringing") {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-gradient-to-b from-blue-900 to-slate-900">
+        <div className="w-24 h-24 rounded-full bg-blue-500 flex items-center justify-center mb-6 animate-pulse">
+          <span className="text-4xl">📞</span>
+        </div>
+        <h1 className="text-2xl font-bold mb-2">Incoming Call</h1>
+        <p className="text-blue-300 text-lg tabular-nums font-bold mb-2">
+          {call?.caller_phone || "Unknown"}
+        </p>
+        <p className="text-slate-400 text-sm mb-12">
+          {call?.source || "unknown"} source
+        </p>
+        <div className="flex gap-8">
+          <button
+            onClick={handleDecline}
+            className="w-20 h-20 rounded-full bg-rose-600 hover:bg-rose-500 flex items-center justify-center text-3xl active:scale-95 transition-transform shadow-lg shadow-rose-600/30"
+          >
+            ✕
+          </button>
+          <button
+            onClick={handleAnswer}
+            className="w-20 h-20 rounded-full bg-emerald-600 hover:bg-emerald-500 flex items-center justify-center text-3xl active:scale-95 transition-transform shadow-lg shadow-emerald-600/30 animate-bounce"
+          >
+            ✓
+          </button>
+        </div>
+        <div className="flex gap-8 mt-3">
+          <span className="text-sm text-rose-400 font-medium w-20 text-center">Decline</span>
+          <span className="text-sm text-emerald-400 font-medium w-20 text-center">Answer</span>
+        </div>
+      </div>
+    );
+  }
+
+  // =====================================================================
+  // RESULT SCREEN
   // =====================================================================
   if (screen === "result") {
     return (
@@ -241,17 +406,13 @@ export default function DriverClient() {
           {call?.disposition === "booked" ? "✅" : call?.disposition === "standby" ? "📤" : "❌"}
         </div>
         <h1 className="text-2xl font-bold mb-2">
-          {call?.disposition === "booked"
-            ? "Job Booked!"
-            : call?.disposition === "standby"
-            ? "Proposal Sent"
-            : "Call Lost"}
+          {call?.disposition === "booked" ? "Job Booked!" : call?.disposition === "standby" ? "Proposal Sent" : "Call Lost"}
         </h1>
         {call?.disposition === "booked" && (
           <p className="text-emerald-400 text-lg font-bold mb-4">${estimate}</p>
         )}
         {call?.disposition === "standby" && (
-          <p className="text-amber-400 text-sm mb-4">
+          <p className="text-amber-400 text-sm mb-4 text-center max-w-xs">
             Customer will receive a text with your quote and an accept button.
           </p>
         )}
@@ -268,21 +429,16 @@ export default function DriverClient() {
             Ready for Next Call
           </button>
         )}
-        {toast && (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-xl bg-white text-slate-900 text-xs font-semibold shadow-xl">
-            {toast}
-          </div>
-        )}
       </div>
     );
   }
 
   // =====================================================================
-  // LIVE CALL SCREEN — the core experience
+  // LIVE CALL SCREEN
   // =====================================================================
   return (
     <div className="min-h-screen flex flex-col">
-      {/* ---- Header: caller + timer ---- */}
+      {/* Header */}
       <div className="bg-blue-600 px-4 py-3 flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
@@ -292,39 +448,36 @@ export default function DriverClient() {
             </span>
             <span className="text-xs font-bold uppercase tracking-wider opacity-80">Live Call</span>
           </div>
-          <div className="text-xl font-bold tabular-nums mt-0.5">
-            {call?.caller_phone || "Unknown"}
-          </div>
-          <div className="text-xs opacity-70">
-            {call?.source || "unknown"} source
-          </div>
+          <div className="text-xl font-bold tabular-nums mt-0.5">{call?.caller_phone || "Unknown"}</div>
+          <div className="text-xs opacity-70">{call?.source || "unknown"} source</div>
         </div>
-        <div className="text-right">
-          <div className="text-3xl font-bold tabular-nums">{formatTime(elapsed)}</div>
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <div className="text-3xl font-bold tabular-nums">{formatTime(elapsed)}</div>
+          </div>
+          <button
+            onClick={handleHangup}
+            className="w-12 h-12 rounded-full bg-rose-600 hover:bg-rose-500 flex items-center justify-center text-xl active:scale-95"
+            title="Hang up"
+          >
+            ✕
+          </button>
         </div>
       </div>
 
-      {/* ---- Live transcript ---- */}
+      {/* Transcript */}
       <div className="bg-slate-800 px-4 py-3 border-b border-slate-700">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">
-            Live Transcript
-          </span>
-          <span className="text-[10px] text-blue-400 font-medium">
-            {call?.transcript_chunks?.length || 0} lines
-          </span>
+          <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Live Transcript</span>
+          <span className="text-[10px] text-blue-400 font-medium">{call?.transcript_chunks?.length || 0} lines</span>
         </div>
         <div className="max-h-32 overflow-y-auto space-y-1.5 text-sm">
           {(!call?.transcript_chunks || call.transcript_chunks.length === 0) ? (
-            <div className="text-slate-500 text-xs italic">
-              Transcript will appear here as you talk…
-            </div>
+            <div className="text-slate-500 text-xs italic">Transcript will appear here…</div>
           ) : (
             call.transcript_chunks.map((chunk, i) => (
               <div key={i} className="flex gap-2">
-                <span className={`text-[10px] font-bold uppercase w-[60px] shrink-0 ${
-                  chunk.speaker === "caller" ? "text-slate-400" : "text-blue-400"
-                }`}>
+                <span className={`text-[10px] font-bold uppercase w-[60px] shrink-0 ${chunk.speaker === "caller" ? "text-slate-400" : "text-blue-400"}`}>
                   {chunk.speaker === "caller" ? "Caller" : "You"}
                 </span>
                 <span className="text-slate-200">{chunk.text}</span>
@@ -334,11 +487,9 @@ export default function DriverClient() {
         </div>
       </div>
 
-      {/* ---- Extracted info ---- */}
+      {/* Extracted info */}
       <div className="bg-slate-800/50 px-4 py-3 border-b border-slate-700">
-        <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-2">
-          Auto-Detected
-        </div>
+        <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-2">Auto-Detected</div>
         <div className="grid grid-cols-2 gap-2 text-xs">
           <InfoChip label="Service" value={extracted.service} />
           <InfoChip label="Pickup" value={extracted.pickup} />
@@ -347,7 +498,7 @@ export default function DriverClient() {
         </div>
       </div>
 
-      {/* ---- Customer name (manual) ---- */}
+      {/* Customer name */}
       <div className="px-4 py-3 border-b border-slate-700">
         <input
           type="text"
@@ -358,12 +509,9 @@ export default function DriverClient() {
         />
       </div>
 
-      {/* ---- Quote calculator ---- */}
+      {/* Quote calculator */}
       <div className="px-4 py-4 border-b border-slate-700">
-        <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-3">
-          Quote
-        </div>
-
+        <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-3">Quote</div>
         <div className="grid grid-cols-2 gap-3 mb-3">
           <div>
             <label className="text-[10px] text-slate-500 uppercase mb-1 block">Miles</label>
@@ -378,65 +526,48 @@ export default function DriverClient() {
             <label className="text-[10px] text-slate-500 uppercase mb-1 block">Non-runner</label>
             <button
               onClick={() => setNonRunner(!nonRunner)}
-              className={`w-full px-3 py-2.5 rounded-xl text-sm font-bold transition-colors ${
-                nonRunner
-                  ? "bg-amber-500 text-white border border-amber-400"
-                  : "bg-slate-800 text-slate-400 border border-slate-600"
-              }`}
+              className={`w-full px-3 py-2.5 rounded-xl text-sm font-bold transition-colors ${nonRunner ? "bg-amber-500 text-white border border-amber-400" : "bg-slate-800 text-slate-400 border border-slate-600"}`}
             >
               {nonRunner ? "YES +$30" : "NO"}
             </button>
           </div>
         </div>
-
         <div className="bg-slate-800 rounded-2xl p-4 flex items-center justify-between">
           <div>
-            <div className="text-[10px] text-slate-500 uppercase">Hookup ${HOOKUP_FEE} + {miles}mi × ${RATE_PER_MILE}{nonRunner ? ` + $${NON_RUNNER_FEE}` : ""}</div>
+            <div className="text-[10px] text-slate-500 uppercase">
+              ${HOOKUP_FEE} + {miles}mi × ${RATE_PER_MILE}{nonRunner ? ` + $${NON_RUNNER_FEE}` : ""}
+            </div>
             <div className="text-3xl font-bold text-emerald-400 tabular-nums mt-1">${estimate}</div>
           </div>
           <div className="text-right">
             <div className="text-[10px] text-slate-500 uppercase">ETA</div>
-            <div className="text-2xl font-bold tabular-nums">
-              {miles > 0 ? `${Math.round(miles * 2.5)}m` : "—"}
-            </div>
+            <div className="text-2xl font-bold tabular-nums">{miles > 0 ? `${Math.round(miles * 2.5)}m` : "—"}</div>
           </div>
         </div>
       </div>
 
-      {/* ---- Notes ---- */}
+      {/* Notes */}
       <div className="px-4 py-3 border-b border-slate-700">
         <textarea
           rows={2}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Notes for this call…"
+          placeholder="Notes…"
           className="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-600 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
         />
       </div>
 
-      {/* ---- 3 ACTION BUTTONS ---- */}
+      {/* 3 Action Buttons */}
       <div className="p-4 mt-auto">
         <div className="grid grid-cols-3 gap-3">
-          <button
-            onClick={handleBooked}
-            className="py-5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-center font-bold text-lg transition-colors active:scale-95"
-          >
-            <div className="text-2xl mb-1">✓</div>
-            Booked
+          <button onClick={handleBooked} className="py-5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-center font-bold text-lg transition-colors active:scale-95">
+            <div className="text-2xl mb-1">✓</div>Booked
           </button>
-          <button
-            onClick={handleStandby}
-            className="py-5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-white text-center font-bold text-lg transition-colors active:scale-95"
-          >
-            <div className="text-2xl mb-1">⏳</div>
-            Standby
+          <button onClick={handleStandby} className="py-5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-white text-center font-bold text-lg transition-colors active:scale-95">
+            <div className="text-2xl mb-1">⏳</div>Standby
           </button>
-          <button
-            onClick={handleLost}
-            className="py-5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white text-center font-bold text-lg transition-colors active:scale-95"
-          >
-            <div className="text-2xl mb-1">✕</div>
-            Lost
+          <button onClick={handleLost} className="py-5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white text-center font-bold text-lg transition-colors active:scale-95">
+            <div className="text-2xl mb-1">✕</div>Lost
           </button>
         </div>
       </div>
@@ -450,17 +581,11 @@ export default function DriverClient() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Small components
-// ---------------------------------------------------------------------------
-
 function InfoChip({ label, value }: { label: string; value: string | null }) {
   return (
     <div className={`px-2.5 py-1.5 rounded-lg ${value ? "bg-blue-900/40 border border-blue-700/50" : "bg-slate-800 border border-slate-700"}`}>
       <div className="text-[9px] uppercase tracking-wider text-slate-500">{label}</div>
-      <div className={`text-sm font-medium truncate ${value ? "text-blue-300" : "text-slate-600"}`}>
-        {value || "—"}
-      </div>
+      <div className={`text-sm font-medium truncate ${value ? "text-blue-300" : "text-slate-600"}`}>{value || "—"}</div>
     </div>
   );
 }
