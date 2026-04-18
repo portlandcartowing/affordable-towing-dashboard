@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, Session } from "@supabase/supabase-js";
 import { Device, Call as TwilioCall } from "@twilio/voice-sdk";
 import { parseTranscript } from "@/lib/transcriptParser";
 import {
@@ -11,12 +11,13 @@ import {
 } from "@/app/call-center/actions";
 import type { LostReason } from "@/lib/types";
 
+
 // ---------------------------------------------------------------------------
-// Supabase Realtime (browser-side)
+// Supabase (browser-side) — shared instance for realtime + auth
 // ---------------------------------------------------------------------------
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const realtime = createClient(supabaseUrl, supabaseKey);
+const sbClient = createClient(supabaseUrl, supabaseKey);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,17 +46,57 @@ type ExtractedInfo = {
 type ScreenState = "idle" | "ringing" | "live" | "result";
 
 // ---------------------------------------------------------------------------
-// Pricing
+// Pricing defaults (overridden by driver profile when available)
 // ---------------------------------------------------------------------------
-const HOOKUP_FEE = 95;
-const RATE_PER_MILE = 4;
+const DEFAULT_HOOKUP_FEE = 95;
+const DEFAULT_RATE_PER_MILE = 4;
 const NON_RUNNER_FEE = 30;
+
+// ---------------------------------------------------------------------------
+// Upsert driver row after sign-in
+// ---------------------------------------------------------------------------
+async function upsertDriver(session: Session) {
+  const user = session.user;
+  await sbClient.from("drivers").upsert(
+    {
+      id: user.id,
+      name: user.user_metadata?.full_name || user.email,
+      status: "available",
+    },
+    { onConflict: "id" },
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export default function DriverClient() {
+  const [session, setSession] = useState<Session | null | undefined>(undefined); // undefined = loading
+  // ---- Auth: check session on mount, redirect if not signed in ----
+  useEffect(() => {
+    sbClient.auth.getSession().then(({ data: { session: s } }) => {
+      if (!s) {
+        window.location.href = "/driver/login";
+        return;
+      }
+      setSession(s);
+      upsertDriver(s);
+    });
+
+    const {
+      data: { subscription },
+    } = sbClient.auth.onAuthStateChange((_event, s) => {
+      if (!s) {
+        window.location.href = "/driver/login";
+        return;
+      }
+      setSession(s);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   const [screen, setScreen] = useState<ScreenState>("idle");
   const [call, setCall] = useState<CallRecord | null>(null);
   const [extracted, setExtracted] = useState<ExtractedInfo>({
@@ -72,11 +113,30 @@ export default function DriverClient() {
   const [deviceReady, setDeviceReady] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState("Connecting…");
 
+  const [hookupFee, setHookupFee] = useState(DEFAULT_HOOKUP_FEE);
+  const [ratePerMile, setRatePerMile] = useState(DEFAULT_RATE_PER_MILE);
+
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const deviceRef = useRef<Device | null>(null);
   const activeCallRef = useRef<TwilioCall | null>(null);
 
-  const estimate = HOOKUP_FEE + miles * RATE_PER_MILE + (nonRunner ? NON_RUNNER_FEE : 0);
+  const estimate = hookupFee + miles * ratePerMile + (nonRunner ? NON_RUNNER_FEE : 0);
+
+  // ---- Fetch driver profile (pricing) ----
+  useEffect(() => {
+    if (!session) return;
+    sbClient
+      .from("drivers")
+      .select("hookup_fee, rate_per_mile")
+      .eq("id", session.user.id)
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          if (data.hookup_fee != null) setHookupFee(data.hookup_fee);
+          if (data.rate_per_mile != null) setRatePerMile(data.rate_per_mile);
+        }
+      });
+  }, [session]);
 
   // ---- Request notification permission on mount ----
   useEffect(() => {
@@ -87,11 +147,13 @@ export default function DriverClient() {
 
   // ---- Initialize Twilio Client Device ----
   useEffect(() => {
+    if (!session) return;
     let cancelled = false;
+    const driverIdentity = session.user.id;
 
     async function initDevice() {
       try {
-        const res = await fetch("/api/twilio/token");
+        const res = await fetch(`/api/twilio/token?identity=${encodeURIComponent(driverIdentity)}`);
         const data = await res.json();
 
         if (!data.token) {
@@ -147,7 +209,7 @@ export default function DriverClient() {
         });
 
         device.on("tokenWillExpire", async () => {
-          const refreshRes = await fetch("/api/twilio/token");
+          const refreshRes = await fetch(`/api/twilio/token?identity=${encodeURIComponent(driverIdentity)}`);
           const refreshData = await refreshRes.json();
           if (refreshData.token) {
             device.updateToken(refreshData.token);
@@ -171,11 +233,11 @@ export default function DriverClient() {
         deviceRef.current = null;
       }
     };
-  }, []);
+  }, [session]);
 
   // ---- Supabase Realtime: watch for call updates (transcript) ----
   useEffect(() => {
-    const channel = realtime
+    const channel = sbClient
       .channel("driver-calls")
       .on(
         "postgres_changes",
@@ -214,7 +276,7 @@ export default function DriverClient() {
       )
       .subscribe();
 
-    return () => { realtime.removeChannel(channel); };
+    return () => { sbClient.removeChannel(channel); };
   }, [call?.id]);
 
   // ---- Call duration timer ----
@@ -326,6 +388,17 @@ export default function DriverClient() {
 
   const formatTime = (s: number) =>
     `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
+
+  // =====================================================================
+  // AUTH LOADING
+  // =====================================================================
+  if (session === undefined) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   // =====================================================================
   // IDLE SCREEN
@@ -535,7 +608,7 @@ export default function DriverClient() {
         <div className="bg-slate-800 rounded-2xl p-4 flex items-center justify-between">
           <div>
             <div className="text-[10px] text-slate-500 uppercase">
-              ${HOOKUP_FEE} + {miles}mi × ${RATE_PER_MILE}{nonRunner ? ` + $${NON_RUNNER_FEE}` : ""}
+              ${hookupFee} + {miles}mi × ${ratePerMile}{nonRunner ? ` + $${NON_RUNNER_FEE}` : ""}
             </div>
             <div className="text-3xl font-bold text-emerald-400 tabular-nums mt-1">${estimate}</div>
           </div>

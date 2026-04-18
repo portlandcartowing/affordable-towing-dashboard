@@ -7,7 +7,7 @@ import twilio from "twilio";
 // a VoIP endpoint that can receive incoming calls.
 // ---------------------------------------------------------------------------
 
-export async function GET() {
+export async function GET(request: Request) {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const apiKeySid = process.env.TWILIO_API_KEY_SID;
   const apiKeySecret = process.env.TWILIO_API_KEY_SECRET;
@@ -27,11 +27,14 @@ export async function GET() {
     );
   }
 
+  const { searchParams } = new URL(request.url);
+  const identity = searchParams.get("identity") || "driver";
+
   const AccessToken = twilio.jwt.AccessToken;
   const VoiceGrant = AccessToken.VoiceGrant;
 
   const token = new AccessToken(accountSid, apiKeySid, apiKeySecret, {
-    identity: "driver",
+    identity,
     ttl: 3600, // 1 hour
   });
 
@@ -44,6 +47,6 @@ export async function GET() {
 
   return NextResponse.json({
     token: token.toJwt(),
-    identity: "driver",
+    identity,
   });
 }
