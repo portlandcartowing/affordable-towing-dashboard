@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
-import { twilioClient, twilioNumber } from "@/lib/twilio";
+import { getTwilioClient, twilioNumber } from "@/lib/twilio";
 import { createProposal } from "@/lib/proposals";
 import type { LostReason } from "@/lib/types";
 
@@ -164,7 +164,7 @@ export async function dispatchStandby(callId: string, fields: {
   const proposalUrl = `${baseUrl}/proposal/${proposal.token}`;
 
   try {
-    await twilioClient.messages.create({
+    await getTwilioClient().messages.create({
       to: fields.phone,
       from: twilioNumber,
       body: `Portland Car Towing — Your quote: $${fields.quoted_price ?? "TBD"}. ETA: ${fields.eta_min ?? "~"}–${fields.eta_max ?? "~"} min. View & accept: ${proposalUrl}`,
@@ -240,7 +240,7 @@ export async function sendConfirmationText(
 ) {
   const name = customerName?.split(" ")[0] ?? "there";
   try {
-    await twilioClient.messages.create({
+    await getTwilioClient().messages.create({
       to: phone,
       from: twilioNumber,
       body: `Hi ${name}! Portland Car Towing confirming your job. ${price != null ? `Total: $${price}. ` : ""}A driver is on the way. Reply STOP to opt out.`,
