@@ -15,8 +15,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Affordable Towing CRM",
-  description: "Mobile-friendly dispatch & marketing dashboard",
+  title: "ACT Dispatch",
+  description: "Affordable Car Towing — Dispatch App",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "ACT Dispatch",
+  },
 };
 
 export const viewport: Viewport = {
