@@ -390,9 +390,9 @@ export default function DriverClient() {
     `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
   // =====================================================================
-  // AUTH LOADING
+  // AUTH GUARD — show spinner while checking, block render if no session
   // =====================================================================
-  if (session === undefined) {
+  if (!session) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
