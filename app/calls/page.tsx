@@ -47,7 +47,7 @@ export default async function CallsPage() {
               subtitle={`${calls.length} tracked ${calls.length === 1 ? "call" : "calls"}`}
             />
           </div>
-          <CallsTable calls={calls} leadIdsWithJobs={leadIdsWithJobs} />
+          <CallsTable calls={calls} leadIdsWithJobs={[...leadIdsWithJobs]} />
         </section>
       </main>
     </>

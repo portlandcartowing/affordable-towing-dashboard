@@ -50,6 +50,17 @@ export async function POST(req: NextRequest) {
       notes: callSid ? `twilio_sid:${callSid}` : null,
     });
 
+    // Fire push notification to wake drivers' phones
+    try {
+      await fetch(`${baseUrl}/api/push/notify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caller_phone: callerPhone, source }),
+      });
+    } catch {
+      // Don't let push failure block the call
+    }
+
     // Look up available drivers
     const { data: drivers } = await supabase
       .from("drivers")

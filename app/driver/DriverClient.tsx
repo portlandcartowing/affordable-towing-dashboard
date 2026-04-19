@@ -138,12 +138,51 @@ export default function DriverClient() {
       });
   }, [session]);
 
-  // ---- Request notification permission on mount ----
+  // ---- Register service worker + push subscription ----
   useEffect(() => {
-    if ("Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission();
+    if (!session) return;
+
+    async function setupPush() {
+      // Request notification permission
+      if ("Notification" in window && Notification.permission === "default") {
+        await Notification.requestPermission();
+      }
+
+      // Register service worker
+      if ("serviceWorker" in navigator) {
+        try {
+          const reg = await navigator.serviceWorker.register("/sw.js");
+          await navigator.serviceWorker.ready;
+
+          // Subscribe to push
+          const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+          if (vapidKey && Notification.permission === "granted") {
+            let sub = await reg.pushManager.getSubscription();
+            if (!sub) {
+              sub = await reg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: vapidKey,
+              });
+            }
+
+            // Send subscription to server
+            await fetch("/api/push/subscribe", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                subscription: sub.toJSON(),
+                driver_id: session!.user.id,
+              }),
+            });
+          }
+        } catch (err) {
+          console.error("Push setup error:", err);
+        }
+      }
     }
-  }, []);
+
+    setupPush();
+  }, [session]);
 
   // ---- Initialize Twilio Client Device ----
   useEffect(() => {

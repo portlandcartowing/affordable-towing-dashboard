@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 type Accent = "blue" | "indigo" | "emerald" | "amber" | "violet" | "slate";
 
 type KpiCardProps = {
@@ -7,6 +9,7 @@ type KpiCardProps = {
   trend?: "up" | "down" | "neutral";
   icon?: string;
   accent?: Accent;
+  href?: string;
 };
 
 const ACCENT: Record<Accent, { bg: string; fg: string }> = {
@@ -25,6 +28,7 @@ export default function KpiCard({
   trend = "neutral",
   icon,
   accent = "slate",
+  href,
 }: KpiCardProps) {
   const trendColor =
     trend === "up"
@@ -35,8 +39,8 @@ export default function KpiCard({
   const trendGlyph = trend === "up" ? "▲" : trend === "down" ? "▼" : "•";
   const a = ACCENT[accent];
 
-  return (
-    <div className="group bg-white rounded-2xl ring-1 ring-slate-200/70 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-[0_4px_16px_rgba(15,23,42,0.06)] transition-shadow p-4 md:p-5">
+  const content = (
+    <>
       <div className="flex items-start justify-between gap-3">
         <div className="text-[11px] md:text-xs font-semibold text-slate-500 uppercase tracking-wide">
           {title}
@@ -57,6 +61,22 @@ export default function KpiCard({
           {trendGlyph} {delta}
         </div>
       )}
-    </div>
+    </>
   );
+
+  const baseClass =
+    "group bg-white rounded-2xl ring-1 ring-slate-200/70 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-[0_4px_16px_rgba(15,23,42,0.06)] transition-shadow p-4 md:p-5";
+  const clickableClass = href
+    ? `${baseClass} cursor-pointer hover:ring-blue-300 active:scale-[0.98] transition-all`
+    : baseClass;
+
+  if (href) {
+    return (
+      <Link href={href} className={`${clickableClass} block`}>
+        {content}
+      </Link>
+    );
+  }
+
+  return <div className={clickableClass}>{content}</div>;
 }

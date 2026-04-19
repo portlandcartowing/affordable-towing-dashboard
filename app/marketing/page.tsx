@@ -1,6 +1,7 @@
 import Topbar from "@/components/dashboard/Topbar";
 import KpiCard from "@/components/dashboard/KpiCard";
 import DateRangePicker from "@/components/marketing/DateRangePicker";
+import CampaignTable from "@/components/marketing/CampaignTable";
 import {
   getAdSpend,
   summarizeCampaigns,
@@ -82,28 +83,7 @@ export default async function MarketingPage({
                   <th className="text-right px-5 py-3">CPA</th>
                 </tr>
               </thead>
-              <tbody>
-                {campaigns.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-5 py-12 text-center text-slate-400">
-                      No campaign data yet. Sync Google Ads to populate.
-                    </td>
-                  </tr>
-                ) : (
-                  campaigns.map((c) => (
-                    <tr key={c.campaign} className="border-t border-t-slate-100">
-                      <td className="px-5 py-3 font-medium text-slate-900">{c.campaign}</td>
-                      <td className="px-5 py-3 text-right text-slate-600">{money(c.cost)}</td>
-                      <td className="px-5 py-3 text-right text-slate-600">
-                        {c.clicks.toLocaleString()}
-                      </td>
-                      <td className="px-5 py-3 text-right text-slate-600">{c.conversions}</td>
-                      <td className="px-5 py-3 text-right text-slate-600">{money(c.cpc)}</td>
-                      <td className="px-5 py-3 text-right text-slate-600">{money(c.cpa)}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
+              <CampaignTable campaigns={campaigns} dailyRows={rows} />
             </table>
           </div>
         </div>

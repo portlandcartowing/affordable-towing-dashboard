@@ -1,0 +1,296 @@
+"use client";
+
+import { useState } from "react";
+import JobStatusBadge from "@/components/dispatch/JobStatusBadge";
+import EmptyState from "@/components/dashboard/EmptyState";
+import type { Job } from "@/lib/types";
+
+const money = (n: number) =>
+  n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+function formatTime(iso: string | null) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/* ── Expanded detail panel ── */
+function JobDetail({ job }: { job: Job }) {
+  const vehicle = [job.vehicle_year, job.vehicle_make, job.vehicle_model]
+    .filter(Boolean)
+    .join(" ");
+  const pickupFull = [job.pickup_address, job.pickup_city, job.pickup_state, job.pickup_zip]
+    .filter(Boolean)
+    .join(", ");
+  const dropoffFull = [job.dropoff_address, job.dropoff_city, job.dropoff_state, job.dropoff_zip]
+    .filter(Boolean)
+    .join(", ");
+
+  return (
+    <div className="px-5 py-4 bg-slate-50/60 space-y-4 text-sm border-t border-slate-100">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium">Customer</div>
+          <div className="mt-0.5 font-semibold text-slate-900">{job.customer || "—"}</div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium">Phone</div>
+          <div className="mt-0.5">
+            {job.phone ? (
+              <a href={`tel:${job.phone}`} className="text-blue-600 hover:underline">{job.phone}</a>
+            ) : "—"}
+          </div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium">Status</div>
+          <div className="mt-0.5"><JobStatusBadge status={job.status} /></div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium">Created</div>
+          <div className="mt-0.5 text-slate-700">{formatTime(job.created_at)}</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium">Vehicle</div>
+          <div className="mt-0.5 text-slate-700">{vehicle || "—"}</div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium">Running</div>
+          <div className="mt-0.5">
+            {job.vehicle_running == null ? (
+              <span className="text-slate-400">—</span>
+            ) : job.vehicle_running ? (
+              <span className="text-emerald-600 font-medium">Yes</span>
+            ) : (
+              <span className="text-rose-600 font-medium">No (non-runner)</span>
+            )}
+          </div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium">Distance</div>
+          <div className="mt-0.5 text-slate-700">{job.distance_miles != null ? `${job.distance_miles} mi` : "—"}</div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium">Scheduled For</div>
+          <div className="mt-0.5 text-slate-700">{formatTime(job.scheduled_for)}</div>
+        </div>
+      </div>
+
+      {/* Full addresses */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium mb-1">Pickup Address</div>
+          <div className="text-slate-700 bg-white rounded-lg px-3 py-2 ring-1 ring-slate-200/70 flex items-start gap-2">
+            <span className="text-slate-400 shrink-0 mt-0.5">◉</span>
+            <span>{pickupFull || "TBD"}</span>
+          </div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium mb-1">Dropoff Address</div>
+          <div className="text-slate-700 bg-white rounded-lg px-3 py-2 ring-1 ring-slate-200/70 flex items-start gap-2">
+            <span className="text-slate-400 shrink-0 mt-0.5">➤</span>
+            <span>{dropoffFull || "TBD"}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Financials */}
+      <div className="grid grid-cols-3 gap-4">
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium">Price</div>
+          <div className="mt-0.5 text-lg font-bold text-slate-900">{job.price != null ? money(job.price) : "—"}</div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium">Driver Pay</div>
+          <div className="mt-0.5 text-lg font-bold text-slate-900">{job.driver_pay != null ? money(job.driver_pay) : "—"}</div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium">Profit</div>
+          <div className="mt-0.5 text-lg font-bold text-emerald-600">
+            {job.price != null && job.driver_pay != null
+              ? money(job.price - job.driver_pay)
+              : "—"}
+          </div>
+        </div>
+      </div>
+
+      {job.notes && (
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium mb-1">Notes</div>
+          <div className="text-slate-700 bg-white rounded-lg px-3 py-2 ring-1 ring-slate-200/70">
+            {job.notes}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function JobsTable({ jobs }: { jobs: Job[] }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const toggle = (id: string) =>
+    setExpandedId((prev) => (prev === id ? null : id));
+
+  if (jobs.length === 0) {
+    return (
+      <EmptyState
+        icon="✦"
+        title="No jobs yet"
+        description="Convert a booked lead into a job to see it in the dispatch queue."
+      />
+    );
+  }
+
+  return (
+    <>
+      {/* Mobile — card grid */}
+      <div className="md:hidden grid grid-cols-1 gap-3">
+        {jobs.map((job) => {
+          const vehicle = [job.vehicle_year, job.vehicle_make, job.vehicle_model]
+            .filter(Boolean)
+            .join(" ");
+          const pickup = [job.pickup_city, job.pickup_state].filter(Boolean).join(", ");
+          const dropoff = [job.dropoff_city, job.dropoff_state].filter(Boolean).join(", ");
+          const isOpen = expandedId === job.id;
+
+          return (
+            <div
+              key={job.id}
+              className={`bg-white rounded-2xl ring-1 shadow-sm overflow-hidden transition-all ${
+                isOpen ? "ring-blue-300 shadow-md" : "ring-slate-200/70 border-slate-100"
+              }`}
+            >
+              <button
+                onClick={() => toggle(job.id)}
+                className="w-full text-left p-4 hover:bg-slate-50/50 transition-colors"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-900 truncate">
+                      {vehicle || "Vehicle TBD"}
+                    </div>
+                    <div className="text-xs text-slate-500 truncate">{job.customer || "—"}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <JobStatusBadge status={job.status} />
+                    <span className={`text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`}>
+                      ▾
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-3 text-sm text-slate-600 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400 shrink-0">◉</span>
+                    <span className="truncate">{pickup || "Pickup TBD"}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400 shrink-0">➤</span>
+                    <span className="truncate">{dropoff || "Dropoff TBD"}</span>
+                  </div>
+                </div>
+
+                <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between">
+                  <div>
+                    <div className="text-[10px] uppercase text-slate-400">Price</div>
+                    <div className="font-semibold text-slate-900">
+                      {job.price != null ? money(job.price) : "—"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase text-slate-400">Driver Pay</div>
+                    <div className="font-semibold text-slate-900">
+                      {job.driver_pay != null ? money(job.driver_pay) : "—"}
+                    </div>
+                  </div>
+                  {job.distance_miles != null && (
+                    <div className="text-xs text-slate-500">{job.distance_miles} mi</div>
+                  )}
+                </div>
+              </button>
+
+              {isOpen && <JobDetail job={job} />}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Desktop — table */}
+      <div className="hidden md:block bg-white rounded-2xl ring-1 ring-slate-200/70 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
+              <tr>
+                <th className="text-left px-4 py-3">Status</th>
+                <th className="text-left px-4 py-3">Customer</th>
+                <th className="text-left px-4 py-3">Vehicle</th>
+                <th className="text-left px-4 py-3">Pickup</th>
+                <th className="text-left px-4 py-3">Dropoff</th>
+                <th className="text-right px-4 py-3">Miles</th>
+                <th className="text-right px-4 py-3">Price</th>
+                <th className="text-right px-4 py-3">Driver Pay</th>
+              </tr>
+            </thead>
+            {jobs.map((job) => {
+              const vehicle = [job.vehicle_year, job.vehicle_make, job.vehicle_model]
+                .filter(Boolean)
+                .join(" ");
+              const pickup = [job.pickup_city, job.pickup_state]
+                .filter(Boolean)
+                .join(", ");
+              const dropoff = [job.dropoff_city, job.dropoff_state]
+                .filter(Boolean)
+                .join(", ");
+              const isOpen = expandedId === job.id;
+
+              return (
+                <tbody key={job.id}>
+                  <tr
+                    onClick={() => toggle(job.id)}
+                    className={`border-t border-slate-100 cursor-pointer transition-colors ${
+                      isOpen ? "bg-blue-50/40" : "hover:bg-slate-50/50"
+                    }`}
+                  >
+                    <td className="px-4 py-3">
+                      <JobStatusBadge status={job.status} />
+                    </td>
+                    <td className="px-4 py-3 font-medium text-slate-900">
+                      {job.customer || "—"}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">{vehicle || "—"}</td>
+                    <td className="px-4 py-3 text-slate-600">{pickup || "—"}</td>
+                    <td className="px-4 py-3 text-slate-600">{dropoff || "—"}</td>
+                    <td className="px-4 py-3 text-right text-slate-600">
+                      {job.distance_miles ?? "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right font-medium text-slate-900">
+                      {job.price != null ? money(job.price) : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right text-slate-600">
+                      {job.driver_pay != null ? money(job.driver_pay) : "—"}
+                    </td>
+                  </tr>
+                  {isOpen && (
+                    <tr>
+                      <td colSpan={8} className="p-0">
+                        <JobDetail job={job} />
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              );
+            })}
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}

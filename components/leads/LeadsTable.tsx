@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import BookedToggle from "./BookedToggle";
 import CreateJobButton from "./CreateJobButton";
 import EmptyState from "@/components/dashboard/EmptyState";
@@ -20,13 +23,98 @@ function formatPrice(price: number | null) {
   return `$${price.toFixed(2)}`;
 }
 
+/* ── Expanded detail panel ── */
+function LeadDetail({ lead, hasJob }: { lead: Lead; hasJob: boolean }) {
+  return (
+    <div className="px-5 py-4 bg-slate-50/60 space-y-4 text-sm border-t border-slate-100">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium">Customer</div>
+          <div className="mt-0.5 font-semibold text-slate-900">{lead.customer || "Unknown"}</div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium">Phone</div>
+          <div className="mt-0.5">
+            {lead.phone ? (
+              <a href={`tel:${lead.phone}`} className="text-blue-600 hover:underline">{lead.phone}</a>
+            ) : "—"}
+          </div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium">Service</div>
+          <div className="mt-0.5 text-slate-700">{lead.service || "—"}</div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium">City</div>
+          <div className="mt-0.5 text-slate-700">{lead.city || "—"}</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium">Source</div>
+          <div className="mt-0.5">
+            <span className="px-2 py-0.5 text-xs rounded-full bg-blue-50 text-blue-700">
+              {lead.source || "—"}
+            </span>
+          </div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium">Price</div>
+          <div className="mt-0.5 font-semibold text-slate-900">{formatPrice(lead.price)}</div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium">Status</div>
+          <div className="mt-0.5">
+            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
+              lead.booked ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
+            }`}>
+              {lead.booked ? "Booked" : "New Lead"}
+            </span>
+          </div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium">Created</div>
+          <div className="mt-0.5 text-slate-700">{formatTime(lead.created_at)}</div>
+        </div>
+      </div>
+
+      {lead.notes && (
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium mb-1">Notes</div>
+          <div className="text-slate-700 bg-white rounded-lg px-3 py-2 ring-1 ring-slate-200/70">
+            {lead.notes}
+          </div>
+        </div>
+      )}
+
+      {lead.call_id && (
+        <div className="text-xs text-slate-500">
+          Linked to call <span className="font-mono">{lead.call_id.slice(0, 8)}…</span>
+        </div>
+      )}
+      {lead.proposal_id && (
+        <div className="text-xs text-slate-500">
+          Linked to proposal <span className="font-mono">{lead.proposal_id.slice(0, 8)}…</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function LeadsTable({
   leads,
-  leadIdsWithJobs,
+  leadIdsWithJobs: leadIdsArr,
 }: {
   leads: Lead[];
-  leadIdsWithJobs: Set<string>;
+  leadIdsWithJobs: string[];
 }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const leadIdsWithJobs = new Set(leadIdsArr);
+
+  const toggle = (id: string) =>
+    setExpandedId((prev) => (prev === id ? null : id));
+
   if (leads.length === 0) {
     return (
       <EmptyState
@@ -43,59 +131,56 @@ export default function LeadsTable({
       <ul className="md:hidden space-y-3">
         {leads.map((lead) => {
           const hasJob = leadIdsWithJobs.has(lead.id);
+          const isOpen = expandedId === lead.id;
           return (
             <li
               key={lead.id}
-              className="bg-white rounded-2xl ring-1 ring-slate-200/70 shadow-sm p-4"
+              className={`bg-white rounded-2xl ring-1 shadow-sm overflow-hidden transition-all ${
+                isOpen ? "ring-blue-300 shadow-md" : "ring-slate-200/70"
+              }`}
             >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="font-semibold text-slate-900 truncate">
-                    {lead.customer || "Unknown"}
+              <button
+                onClick={() => toggle(lead.id)}
+                className="w-full text-left p-4 hover:bg-slate-50/50 transition-colors"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-900 truncate">
+                      {lead.customer || "Unknown"}
+                    </div>
+                    <div className="text-sm text-slate-500 truncate">
+                      {lead.service || "—"} · {lead.city || "—"}
+                    </div>
                   </div>
-                  <a
-                    href={lead.phone ? `tel:${lead.phone}` : undefined}
-                    className="text-sm text-blue-600 truncate block"
-                  >
-                    {lead.phone || "—"}
-                  </a>
+                  <div className="flex items-center gap-2">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                      lead.booked ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
+                    }`}>
+                      {lead.booked ? "Booked" : "New"}
+                    </span>
+                    <span className={`text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`}>
+                      ▾
+                    </span>
+                  </div>
                 </div>
-                <BookedToggle id={lead.id} booked={!!lead.booked} />
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <div className="text-slate-400">Service</div>
-                  <div className="text-slate-800 truncate">{lead.service || "—"}</div>
-                </div>
-                <div>
-                  <div className="text-slate-400">City</div>
-                  <div className="text-slate-800 truncate">{lead.city || "—"}</div>
-                </div>
-                <div>
-                  <div className="text-slate-400">Source</div>
-                  <div className="text-slate-800 truncate">{lead.source || "—"}</div>
-                </div>
-                <div>
-                  <div className="text-slate-400">Price</div>
-                  <div className="text-slate-800">{formatPrice(lead.price)}</div>
-                </div>
-              </div>
-              {lead.notes && (
-                <div className="mt-3 text-xs text-slate-500 border-t border-slate-100 pt-2">
-                  {lead.notes}
-                </div>
+              </button>
+
+              {isOpen && (
+                <>
+                  <LeadDetail lead={lead} hasJob={hasJob} />
+                  <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between gap-3">
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <BookedToggle id={lead.id} booked={!!lead.booked} />
+                    </div>
+                    <CreateJobButton
+                      leadId={lead.id}
+                      hasJob={hasJob}
+                      booked={!!lead.booked}
+                      size="md"
+                    />
+                  </div>
+                </>
               )}
-              <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between gap-3">
-                <div className="text-[10px] uppercase text-slate-400">
-                  {formatTime(lead.created_at)}
-                </div>
-                <CreateJobButton
-                  leadId={lead.id}
-                  hasJob={hasJob}
-                  booked={!!lead.booked}
-                  size="md"
-                />
-              </div>
             </li>
           );
         })}
@@ -115,52 +200,58 @@ export default function LeadsTable({
                 <th className="text-left px-4 py-3">Source</th>
                 <th className="text-left px-4 py-3">Booked</th>
                 <th className="text-left px-4 py-3">Price</th>
-                <th className="text-left px-4 py-3">Notes</th>
                 <th className="text-right px-4 py-3">Job</th>
               </tr>
             </thead>
-            <tbody>
-              {leads.map((lead) => {
-                const hasJob = leadIdsWithJobs.has(lead.id);
-                return (
-                <tr key={lead.id} className="border-t border-slate-100 hover:bg-slate-50/50">
-                  <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
-                    {formatTime(lead.created_at)}
-                  </td>
-                  <td className="px-4 py-3 font-medium text-slate-900">{lead.customer || "—"}</td>
-                  <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                    {lead.phone || "—"}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">{lead.service || "—"}</td>
-                  <td className="px-4 py-3 text-slate-600">{lead.city || "—"}</td>
-                  <td className="px-4 py-3">
-                    <span className="px-2 py-1 text-xs rounded-full bg-blue-50 text-blue-700">
-                      {lead.source || "—"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <BookedToggle id={lead.id} booked={!!lead.booked} />
-                  </td>
-                  <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">
-                    {formatPrice(lead.price)}
-                  </td>
-                  <td
-                    className="px-4 py-3 text-slate-500 max-w-xs truncate"
-                    title={lead.notes || ""}
+            {leads.map((lead) => {
+              const hasJob = leadIdsWithJobs.has(lead.id);
+              const isOpen = expandedId === lead.id;
+              return (
+                <tbody key={lead.id}>
+                  <tr
+                    onClick={() => toggle(lead.id)}
+                    className={`border-t border-slate-100 cursor-pointer transition-colors ${
+                      isOpen ? "bg-blue-50/40" : "hover:bg-slate-50/50"
+                    }`}
                   >
-                    {lead.notes || "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <CreateJobButton
-                      leadId={lead.id}
-                      hasJob={hasJob}
-                      booked={!!lead.booked}
-                    />
-                  </td>
-                </tr>
-                );
-              })}
-            </tbody>
+                    <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
+                      {formatTime(lead.created_at)}
+                    </td>
+                    <td className="px-4 py-3 font-medium text-slate-900">{lead.customer || "—"}</td>
+                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                      {lead.phone || "—"}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">{lead.service || "—"}</td>
+                    <td className="px-4 py-3 text-slate-600">{lead.city || "—"}</td>
+                    <td className="px-4 py-3">
+                      <span className="px-2 py-1 text-xs rounded-full bg-blue-50 text-blue-700">
+                        {lead.source || "—"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <BookedToggle id={lead.id} booked={!!lead.booked} />
+                    </td>
+                    <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">
+                      {formatPrice(lead.price)}
+                    </td>
+                    <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                      <CreateJobButton
+                        leadId={lead.id}
+                        hasJob={hasJob}
+                        booked={!!lead.booked}
+                      />
+                    </td>
+                  </tr>
+                  {isOpen && (
+                    <tr>
+                      <td colSpan={9} className="p-0">
+                        <LeadDetail lead={lead} hasJob={hasJob} />
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              );
+            })}
           </table>
         </div>
       </div>

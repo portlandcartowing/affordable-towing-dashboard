@@ -36,7 +36,7 @@ export default async function LeadsPage() {
           </div>
         )}
 
-        <LeadsTable leads={leads} leadIdsWithJobs={leadIdsWithJobs} />
+        <LeadsTable leads={leads} leadIdsWithJobs={[...leadIdsWithJobs]} />
       </main>
     </>
   );

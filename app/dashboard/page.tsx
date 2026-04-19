@@ -79,6 +79,7 @@ export default async function DashboardPage() {
               delta={`${callsSummary.week} this week`}
               icon="☎"
               accent="blue"
+              href="/calls"
             />
             <KpiCard
               title="Leads"
@@ -86,6 +87,7 @@ export default async function DashboardPage() {
               delta={`${todayLeads.count} new`}
               icon="◉"
               accent="indigo"
+              href="/leads"
             />
             <KpiCard
               title="Jobs Booked"
@@ -94,6 +96,7 @@ export default async function DashboardPage() {
               trend={todayLeads.booked > 0 ? "up" : "neutral"}
               icon="✓"
               accent="emerald"
+              href="/jobs"
             />
             <KpiCard
               title="Revenue"
@@ -101,14 +104,16 @@ export default async function DashboardPage() {
               trend={todayLeads.revenue > 0 ? "up" : "neutral"}
               icon="▲"
               accent="emerald"
+              href="/jobs"
             />
-            <KpiCard title="Ad Spend" value={money(adSpendToday)} icon="$" accent="amber" />
+            <KpiCard title="Ad Spend" value={money(adSpendToday)} icon="$" accent="amber" href="/marketing" />
             <KpiCard
               title="ROI"
               value={`${roi.toFixed(0)}%`}
               trend={roi >= 300 ? "up" : roi < 0 ? "down" : "neutral"}
               icon="%"
               accent="violet"
+              href="/marketing"
             />
           </div>
         </section>
@@ -124,6 +129,7 @@ export default async function DashboardPage() {
               trend={costPerCall > 0 && costPerCall < 25 ? "up" : "neutral"}
               icon="◎"
               accent="blue"
+              href="/marketing"
             />
             <KpiCard
               title="Cost / Job"
@@ -132,12 +138,14 @@ export default async function DashboardPage() {
               trend={costPerJob > 0 && costPerJob < 75 ? "up" : "neutral"}
               icon="◆"
               accent="indigo"
+              href="/jobs"
             />
             <KpiCard
               title="Calls This Week"
               value={callsSummary.week.toString()}
               icon="◉"
               accent="slate"
+              href="/calls"
             />
           </div>
         </section>
@@ -146,16 +154,17 @@ export default async function DashboardPage() {
         <section>
           <SectionHeader title="This Week" />
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-            <KpiCard title="Leads (7d)" value={weekLeadsSummary.count.toString()} icon="◉" accent="indigo" />
+            <KpiCard title="Leads (7d)" value={weekLeadsSummary.count.toString()} icon="◉" accent="indigo" href="/leads" />
             <KpiCard
               title="Booked (7d)"
               value={weekLeadsSummary.booked.toString()}
               trend={weekLeadsSummary.booked > 0 ? "up" : "neutral"}
               icon="✓"
               accent="emerald"
+              href="/jobs"
             />
-            <KpiCard title="Revenue (7d)" value={money(weekLeadsSummary.revenue)} icon="▲" accent="emerald" />
-            <KpiCard title="Ad Spend (7d)" value={money(adSpendWeek)} icon="$" accent="amber" />
+            <KpiCard title="Revenue (7d)" value={money(weekLeadsSummary.revenue)} icon="▲" accent="emerald" href="/jobs" />
+            <KpiCard title="Ad Spend (7d)" value={money(adSpendWeek)} icon="$" accent="amber" href="/marketing" />
           </div>
         </section>
 
@@ -230,28 +239,30 @@ export default async function DashboardPage() {
           ) : (
             <ul className="divide-y divide-slate-100">
               {recentLeads.map((lead) => (
-                <li
-                  key={lead.id}
-                  className="flex items-center justify-between px-5 py-3 gap-3 text-sm"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium text-slate-900 truncate">
-                      {lead.customer || "Unknown"}
+                <li key={lead.id}>
+                  <Link
+                    href="/leads"
+                    className="flex items-center justify-between px-5 py-3 gap-3 text-sm hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-slate-900 truncate">
+                        {lead.customer || "Unknown"}
+                      </div>
+                      <div className="text-xs text-slate-500 truncate">
+                        {lead.service || "—"} · {lead.city || "—"}
+                      </div>
                     </div>
-                    <div className="text-xs text-slate-500 truncate">
-                      {lead.service || "—"} · {lead.city || "—"}
+                    <div className="text-right shrink-0">
+                      <div className="text-xs text-slate-500">{timeAgo(lead.created_at)}</div>
+                      <div
+                        className={`text-xs font-medium mt-0.5 ${
+                          lead.booked ? "text-emerald-600" : "text-slate-400"
+                        }`}
+                      >
+                        {lead.booked ? "Booked" : "New"}
+                      </div>
                     </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="text-xs text-slate-500">{timeAgo(lead.created_at)}</div>
-                    <div
-                      className={`text-xs font-medium mt-0.5 ${
-                        lead.booked ? "text-emerald-600" : "text-slate-400"
-                      }`}
-                    >
-                      {lead.booked ? "Booked" : "New"}
-                    </div>
-                  </div>
+                  </Link>
                 </li>
               ))}
             </ul>

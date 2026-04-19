@@ -1,16 +1,18 @@
-// Override the root layout's sidebar/nav for the driver screen.
-// This layout renders children directly — full-screen, no chrome.
-// The root layout's <html>/<body> tags still apply (fonts, etc).
+import type { Viewport } from "next";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: "#0f172a",
+};
 
 export default function DriverLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // Return a wrapper that hides the sidebar and mobile nav via CSS.
-  // The root layout wraps this, so we can't remove the sidebar from the
-  // DOM, but we can hide it. This is the cleanest approach without
-  // restructuring into route groups.
   return (
     <>
       <style>{`
@@ -21,12 +23,22 @@ export default function DriverLayout({
         body {
           background: #0f172a !important;
           padding-bottom: 0 !important;
+          overflow: hidden !important;
+          position: fixed !important;
+          width: 100% !important;
+          height: 100% !important;
+          -webkit-overflow-scrolling: touch;
         }
         body > div > div.flex-1 {
           padding-bottom: 0 !important;
         }
+        /* Prevent pull-to-refresh and bounce scroll */
+        html, body {
+          overscroll-behavior: none;
+          touch-action: manipulation;
+        }
       `}</style>
-      <div className="min-h-screen bg-slate-900 text-white">
+      <div className="fixed inset-0 bg-slate-900 text-white overflow-y-auto overscroll-none">
         {children}
       </div>
     </>
