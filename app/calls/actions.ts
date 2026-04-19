@@ -6,11 +6,6 @@ import { parseTranscript } from "@/lib/transcriptParser";
 
 /**
  * One-tap lead creation from an inbound call.
- *
- * Reads the call row, runs the transcript through the deterministic parser
- * in lib/transcriptParser.ts, and pre-fills as many lead fields as can be
- * confidently extracted. Anything the parser can't recognize is left blank
- * for the dispatcher to edit on /leads — the flow never breaks.
  */
 export async function createLeadFromCall(callId: string) {
   const { data: call, error: callError } = await supabase
@@ -26,11 +21,8 @@ export async function createLeadFromCall(callId: string) {
     return { ok: false as const, error: "Call already linked to a lead" };
   }
 
-  // Deterministic, zero-API extraction. Fast enough to run inline.
   const parsed = parseTranscript(call.transcript);
 
-  // Build the lead's notes: parser summary first, then any raw call notes,
-  // then the full transcript as a reference block.
   const noteParts: string[] = [];
   if (parsed.summary) noteParts.push(parsed.summary);
   if (call.notes) noteParts.push(call.notes);
@@ -50,6 +42,7 @@ export async function createLeadFromCall(callId: string) {
       booked: false,
       price: null,
       notes,
+      call_id: callId,
     })
     .select("id")
     .single();
@@ -71,4 +64,34 @@ export async function createLeadFromCall(callId: string) {
   revalidatePath("/leads");
   revalidatePath("/dashboard");
   return { ok: true as const, leadId: lead.id as string };
+}
+
+/**
+ * Delete a call record.
+ */
+export async function deleteCall(callId: string) {
+  // Unlink any leads first
+  await supabase.from("leads").update({ call_id: null }).eq("call_id", callId);
+
+  const { error } = await supabase.from("calls").delete().eq("id", callId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/calls");
+  revalidatePath("/call-center");
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+/**
+ * Delete all calls (for testing cleanup).
+ */
+export async function deleteAllCalls() {
+  await supabase.from("leads").update({ call_id: null }).not("call_id", "is", null);
+  const { error } = await supabase.from("calls").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/calls");
+  revalidatePath("/call-center");
+  revalidatePath("/dashboard");
+  return { ok: true };
 }
