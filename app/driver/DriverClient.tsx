@@ -228,7 +228,7 @@ export default function DriverClient() {
   // Poll every 5 seconds while idle (catches calls even if Realtime missed)
   useEffect(() => {
     if (screen !== "idle") return;
-    const interval = setInterval(checkActiveCall, 5000);
+    const interval = setInterval(checkActiveCall, 3000);
     return () => clearInterval(interval);
   }, [screen, checkActiveCall]);
 
@@ -437,8 +437,8 @@ export default function DriverClient() {
             </>
           ) : realtimeStatus === "error" || realtimeStatus === "timeout" ? (
             <>
-              <span className="w-3 h-3 rounded-full bg-rose-500"></span>
-              <span className="text-sm text-rose-400 font-medium">Connection lost — refresh app</span>
+              <span className="w-3 h-3 rounded-full bg-amber-500"></span>
+              <span className="text-sm text-amber-400 font-medium">Live updates limited — polling active</span>
             </>
           ) : (
             <>
@@ -465,12 +465,20 @@ export default function DriverClient() {
           polls: {pollCount} · {lastPollResult}
         </div>
 
-        <button
-          onClick={handleSignOut}
-          className="mt-4 text-xs text-slate-600 hover:text-slate-400 transition-colors"
-        >
-          Sign out
-        </button>
+        <div className="mt-6 flex gap-3">
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 text-xs text-slate-400 bg-slate-800 rounded-lg active:bg-slate-700"
+          >
+            Refresh
+          </button>
+          <button
+            onClick={handleSignOut}
+            className="px-4 py-2 text-xs text-slate-600 hover:text-slate-400"
+          >
+            Sign out
+          </button>
+        </div>
       </div>
     );
   }
