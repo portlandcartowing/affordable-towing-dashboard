@@ -47,28 +47,37 @@ export async function POST(req: NextRequest) {
     ? `${recordingUrl}.mp3`
     : null;
 
-  // Save recording URL + duration immediately
+  // Save recording URL + duration, clear twilio_sid from notes
   const update: Record<string, unknown> = {};
   if (proxyRecordingUrl) update.recording_url = proxyRecordingUrl;
   if (recordingDuration) update.duration_seconds = parseInt(recordingDuration, 10);
   update.ai_summary = "Transcribing…";
+  update.notes = null;
 
   await supabase.from("calls").update(update).eq("id", callId);
 
   // Auto-transcribe with Deepgram, then run AI post-call processor
   if (proxyRecordingUrl) {
     try {
-      const transcript = await transcribeRecording(proxyRecordingUrl);
+      const transcription = await transcribeRecording(proxyRecordingUrl);
 
-      if (transcript) {
-        // Save transcript immediately
+      if (transcription) {
+        // Save chat-style transcript + structured chunks immediately
+        const chunks = transcription.utterances.map((u, i) => ({
+          id: `${callId}-${i}`,
+          speaker: u.speaker,
+          text: u.text,
+          at: new Date(Date.now() - (transcription.utterances.length - i) * 1000).toISOString(),
+        }));
+
         await supabase.from("calls").update({
-          transcript,
+          transcript: transcription.transcript,
+          transcript_chunks: chunks,
           ai_summary: "Analyzing call…",
         }).eq("id", callId);
 
         // Run AI post-call processor (summary + booking detection + auto-job)
-        const result = await processPostCall(callId, callerPhone, transcript);
+        const result = await processPostCall(callId, callerPhone, transcription.transcript);
 
         console.log("Post-call processing complete:", {
           callId,

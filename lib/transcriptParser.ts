@@ -20,12 +20,103 @@ export type ServiceType =
 export type Urgency = "asap" | "scheduled" | null;
 
 export interface ParsedTranscript {
+  customer_name: string | null;
+  pickup_address: string | null;
   pickup_city: string | null;
   dropoff_city: string | null;
   service_type: ServiceType | null;
+  issue_description: string | null;
   vehicle: string | null;
   urgency: Urgency;
+  is_lost: boolean;
+  lost_reason: string | null;
   summary: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Customer name extraction. Looks for introductions at the beginning of the
+// call: "It's Terry", "My name is Terry", "This is Terry", "I'm Terry".
+// Also handles "Customer: It's Terry" from chat-style transcripts.
+// ---------------------------------------------------------------------------
+
+const NAME_PATTERNS: RegExp[] = [
+  /(?:it'?s|this\s+is|my\s+name\s+is|i'?m|i\s+am|name\s+is)\s+([A-Z][a-z]{1,15})/i,
+  /^(?:Customer|Caller):\s*(?:hi|hello|hey)?\s*(?:it'?s|this\s+is|my\s+name\s+is|i'?m)?\s*([A-Z][a-z]{1,15})\b/im,
+];
+
+// Names that are commonly false positives from transcript noise
+const NAME_STOPWORDS = new Set([
+  "Yeah", "Yes", "Okay", "Here", "There", "Sure", "Right", "Well",
+  "Hey", "Hello", "Thanks", "Thank", "Please", "Sorry", "Actually",
+  "Just", "Need", "Like", "Going", "Gonna", "Calling", "Looking",
+]);
+
+function detectName(text: string): string | null {
+  for (const re of NAME_PATTERNS) {
+    const m = text.match(re);
+    if (m && m[1]) {
+      const name = m[1].trim();
+      if (!NAME_STOPWORDS.has(name)) return name;
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Street address extraction. Looks for patterns like "790 Lancaster Drive",
+// "250 SE Main St", "1234 NW Broadway Ave". Returns the most complete
+// address found.
+// ---------------------------------------------------------------------------
+
+const ADDRESS_RE =
+  /\b(\d{1,5}\s+(?:(?:N|S|E|W|NE|NW|SE|SW|North|South|East|West|Northeast|Northwest|Southeast|Southwest)\s+)?[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,3}\s*(?:Dr(?:ive)?|St(?:reet)?|Ave(?:nue)?|Blvd|Boulevard|Rd|Road|Ln|Lane|Way|Ct|Court|Pl|Place|Pkwy|Parkway|Cir|Circle|Hwy|Highway))\b/i;
+
+function detectAddress(text: string): string | null {
+  const m = text.match(ADDRESS_RE);
+  if (!m) return null;
+  return m[1].trim();
+}
+
+// ---------------------------------------------------------------------------
+// Issue / condition description. Maps the service type to a human-readable
+// description of the problem based on what was said in the call.
+// ---------------------------------------------------------------------------
+
+const ISSUE_PATTERNS: { desc: string; re: RegExp }[] = [
+  { desc: "Locked keys in vehicle", re: /\b(lock(?:ed)?\s+(?:my\s+)?keys?\s+in|keys?\s+(?:are\s+)?(?:inside|locked|stuck)\s+in)\b/i },
+  { desc: "Dead battery",           re: /\b(dead\s+battery|battery\s+(?:is\s+)?dead|won'?t\s+start.*battery)\b/i },
+  { desc: "Flat tire",              re: /\b(flat\s+tire|tire\s+(?:is\s+)?(?:flat|blown|popped)|blowout)\b/i },
+  { desc: "Out of gas",             re: /\b(out\s+of\s+gas|ran\s+out\s+of\s+(?:gas|fuel))\b/i },
+  { desc: "Vehicle stuck",          re: /\b(stuck\s+in|(?:car|truck|vehicle)\s+is\s+stuck)\b/i },
+  { desc: "Vehicle won't start",    re: /\b(won'?t\s+start|doesn'?t\s+start|not\s+starting|car\s+died)\b/i },
+  { desc: "Accident / collision",   re: /\b(accident|crash(?:ed)?|collision|wreck(?:ed)?|hit)\b/i },
+  { desc: "Vehicle breakdown",      re: /\b(broke\s+down|broken\s+down|breakdown|stalled|overheated)\b/i },
+];
+
+function detectIssue(text: string): string | null {
+  for (const { desc, re } of ISSUE_PATTERNS) {
+    if (re.test(text)) return desc;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Lost call detection. Identifies calls where the job was declined —
+// customer too far, too expensive, can't help, etc.
+// ---------------------------------------------------------------------------
+
+const LOST_PATTERNS: { reason: string; re: RegExp }[] = [
+  { reason: "Outside service area",  re: /\b(too\s+far|outside\s+(?:our\s+)?(?:service\s+)?area|(?:\d+)\s+miles\s+from\s+us|we\s+don'?t\s+(?:go|cover)\s+(?:that|there))\b/i },
+  { reason: "Too expensive",         re: /\b(too\s+(?:much|expensive|pricey)|can'?t\s+afford|that'?s\s+a\s+lot)\b/i },
+  { reason: "No truck available",    re: /\b(no\s+(?:truck|driver|one)\s+available|all\s+(?:booked|busy)|can'?t\s+(?:get\s+)?(?:anyone|a\s+truck)\s+(?:out|there))\b/i },
+  { reason: "Customer declined",     re: /\b(no\s+thanks|never\s*mind|i'?ll\s+(?:call\s+)?(?:someone|somewhere)\s+else|forget\s+it)\b/i },
+];
+
+function detectLost(text: string): { is_lost: boolean; lost_reason: string | null } {
+  for (const { reason, re } of LOST_PATTERNS) {
+    if (re.test(text)) return { is_lost: true, lost_reason: reason };
+  }
+  return { is_lost: false, lost_reason: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -148,15 +239,22 @@ function buildSummary(
   transcript: string,
 ): string | null {
   const parts: string[] = [];
+  if (parsed.customer_name) parts.push(parsed.customer_name);
+  if (parsed.issue_description || parsed.service_type) {
+    parts.push(parsed.issue_description || parsed.service_type!);
+  }
   if (parsed.vehicle) parts.push(parsed.vehicle);
-  if (parsed.pickup_city && parsed.dropoff_city) {
+  if (parsed.pickup_address) {
+    parts.push(`at ${parsed.pickup_address}`);
+  } else if (parsed.pickup_city && parsed.dropoff_city) {
     parts.push(`${parsed.pickup_city} to ${parsed.dropoff_city}`);
   } else if (parsed.pickup_city) {
     parts.push(`in ${parsed.pickup_city}`);
-  } else if (parsed.dropoff_city) {
-    parts.push(`to ${parsed.dropoff_city}`);
   }
   if (parsed.urgency === "asap") parts.push("ASAP");
+  if (parsed.is_lost && parsed.lost_reason) {
+    parts.push(`[${parsed.lost_reason}]`);
+  }
 
   if (parts.length > 0) return parts.join(" · ");
 
@@ -177,22 +275,33 @@ function buildSummary(
 export function parseTranscript(transcript: string | null | undefined): ParsedTranscript {
   if (!transcript || transcript.trim().length === 0) {
     return {
+      customer_name: null,
+      pickup_address: null,
       pickup_city: null,
       dropoff_city: null,
       service_type: null,
+      issue_description: null,
       vehicle: null,
       urgency: null,
+      is_lost: false,
+      lost_reason: null,
       summary: null,
     };
   }
 
   const { pickup, dropoff } = detectCities(transcript);
+  const lost = detectLost(transcript);
   const partial = {
+    customer_name: detectName(transcript),
+    pickup_address: detectAddress(transcript),
     pickup_city: pickup,
     dropoff_city: dropoff,
     service_type: detectService(transcript),
+    issue_description: detectIssue(transcript),
     vehicle: detectVehicle(transcript),
     urgency: detectUrgency(transcript),
+    is_lost: lost.is_lost,
+    lost_reason: lost.lost_reason,
   };
 
   return {

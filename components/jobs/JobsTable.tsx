@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import JobStatusBadge from "@/components/dispatch/JobStatusBadge";
+import DeleteJobButton from "./DeleteJobButton";
 import EmptyState from "@/components/dashboard/EmptyState";
 import type { Job } from "@/lib/types";
 
@@ -237,6 +238,7 @@ export default function JobsTable({ jobs }: { jobs: Job[] }) {
                 <th className="text-right px-4 py-3">Miles</th>
                 <th className="text-right px-4 py-3">Price</th>
                 <th className="text-right px-4 py-3">Driver Pay</th>
+                <th className="text-right px-4 py-3"></th>
               </tr>
             </thead>
             {jobs.map((job) => {
@@ -277,10 +279,13 @@ export default function JobsTable({ jobs }: { jobs: Job[] }) {
                     <td className="px-4 py-3 text-right text-slate-600">
                       {job.driver_pay != null ? money(job.driver_pay) : "—"}
                     </td>
+                    <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                      <DeleteJobButton jobId={job.id} />
+                    </td>
                   </tr>
                   {isOpen && (
                     <tr>
-                      <td colSpan={8} className="p-0">
+                      <td colSpan={9} className="p-0">
                         <JobDetail job={job} />
                       </td>
                     </tr>

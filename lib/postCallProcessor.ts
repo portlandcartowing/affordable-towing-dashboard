@@ -204,6 +204,7 @@ async function autoCreateJob(
   const { data: lead, error: leadErr } = await supabase
     .from("leads")
     .insert({
+      customer: parsed.customer_name,
       phone: callerPhone,
       service: parsed.service_type,
       city: parsed.pickup_city,
@@ -227,10 +228,12 @@ async function autoCreateJob(
     .insert({
       lead_id: lead.id,
       status: "booked",
+      customer: parsed.customer_name,
       phone: callerPhone,
       vehicle_year: vehicle.vehicle_year,
       vehicle_make: vehicle.vehicle_make,
       vehicle_model: vehicle.vehicle_model,
+      pickup_address: parsed.pickup_address,
       pickup_city: parsed.pickup_city,
       dropoff_city: parsed.dropoff_city,
       price,
@@ -268,19 +271,24 @@ export async function processPostCall(
   callerPhone: string | null,
   transcript: string,
 ): Promise<PostCallResult> {
-  // 1. Generate AI summary
+  // 1. Parse transcript for structured fields
+  const parsed = parseTranscript(transcript);
+
+  // 2. Generate AI summary
   const aiSummary = await generateAISummary(transcript);
 
-  // 2. Detect booking
-  const booking = detectBooking(transcript);
+  // 3. Detect booking (skip if call was clearly lost)
+  const booking = parsed.is_lost
+    ? { isBooked: false, price: detectBooking(transcript).price }
+    : detectBooking(transcript);
 
-  // 3. Auto-create job if booked
+  // 4. Auto-create job if booked
   let autoJob: AutoJobResult | null = null;
   if (booking.isBooked) {
     autoJob = await autoCreateJob(callId, callerPhone, transcript, booking.price, aiSummary);
   }
 
-  // 4. Update call record
+  // 5. Update call record
   const callUpdate: Record<string, unknown> = {
     ai_summary: aiSummary,
   };
@@ -288,7 +296,11 @@ export async function processPostCall(
     callUpdate.disposition = "booked";
     callUpdate.converted_to_job = true;
     if (booking.price) callUpdate.quoted_price = booking.price;
+  } else if (parsed.is_lost) {
+    callUpdate.disposition = "lost";
+    callUpdate.lost_reason = parsed.lost_reason;
   }
+  if (booking.price) callUpdate.quoted_price = booking.price;
   await supabase.from("calls").update(callUpdate).eq("id", callId);
 
   return { aiSummary, booking, autoJob };

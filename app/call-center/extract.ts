@@ -34,9 +34,11 @@ export function deriveExtractedFields(
 
   return {
     ...current,
+    customer_name: merge(current.customer_name, parsed.customer_name),
     service_type: merge(current.service_type, parsed.service_type),
-    pickup_address: merge(current.pickup_address, parsed.pickup_city),
+    pickup_address: merge(current.pickup_address, parsed.pickup_address || parsed.pickup_city),
     dropoff_address: merge(current.dropoff_address, parsed.dropoff_city),
+    issue_type: merge(current.issue_type, parsed.issue_description),
     vehicle_make: merge(
       current.vehicle_make,
       parsed.vehicle?.split(" ").find((w) => /^[A-Z]/.test(w)) ?? null,

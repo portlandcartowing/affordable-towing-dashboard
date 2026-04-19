@@ -1,12 +1,26 @@
 // ---------------------------------------------------------------------------
 // Deepgram transcription — downloads a Twilio recording and sends it to
-// Deepgram for speech-to-text. Returns the full transcript text.
+// Deepgram for speech-to-text. Returns speaker-labeled utterances formatted
+// as a chat-style transcript.
 //
 // Called automatically by the recording status callback after every call.
 // No buttons, no manual steps.
 // ---------------------------------------------------------------------------
 
-export async function transcribeRecording(recordingUrl: string): Promise<string | null> {
+export interface TranscriptUtterance {
+  speaker: "caller" | "dispatcher";
+  text: string;
+  start: number; // seconds into the recording
+}
+
+export interface TranscriptionResult {
+  /** Chat-style transcript: "Customer: ...\nDispatcher: ..." */
+  transcript: string;
+  /** Structured utterances for transcript_chunks jsonb column */
+  utterances: TranscriptUtterance[];
+}
+
+export async function transcribeRecording(recordingUrl: string): Promise<TranscriptionResult | null> {
   const apiKey = process.env.DEEPGRAM_API_KEY;
   if (!apiKey) {
     console.error("DEEPGRAM_API_KEY not set");
@@ -38,7 +52,7 @@ export async function transcribeRecording(recordingUrl: string): Promise<string 
 
     const audioBuffer = await audioRes.arrayBuffer();
 
-    // Send to Deepgram
+    // Send to Deepgram with diarization + utterances
     const dgRes = await fetch(
       "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&diarize=true&punctuate=true&utterances=true",
       {
@@ -59,13 +73,55 @@ export async function transcribeRecording(recordingUrl: string): Promise<string 
 
     const result = await dgRes.json();
 
-    // Extract transcript from Deepgram response
-    const transcript =
-      result?.results?.channels?.[0]?.alternatives?.[0]?.transcript || null;
+    // Try to build speaker-labeled transcript from utterances
+    const rawUtterances = result?.results?.utterances;
+    if (Array.isArray(rawUtterances) && rawUtterances.length > 0) {
+      return buildChatTranscript(rawUtterances);
+    }
 
-    return transcript;
+    // Fallback: flat transcript (no speaker labels available)
+    const flat =
+      result?.results?.channels?.[0]?.alternatives?.[0]?.transcript || null;
+    if (!flat) return null;
+
+    return {
+      transcript: flat,
+      utterances: [{ speaker: "caller", text: flat, start: 0 }],
+    };
   } catch (err) {
     console.error("Transcription failed:", err);
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Build chat-style transcript from Deepgram utterances.
+//
+// Deepgram uses numeric speaker IDs (0, 1, ...). In a typical towing call
+// the first speaker is the dispatcher (they answer the phone). Speaker 0
+// = dispatcher, speaker 1 = caller/customer. If there are more speakers
+// we label them as "caller" since multi-party calls are rare.
+// ---------------------------------------------------------------------------
+
+function buildChatTranscript(
+  rawUtterances: Array<{ speaker: number; transcript: string; start: number }>,
+): TranscriptionResult {
+  // Determine which speaker ID is the dispatcher (first to speak = dispatcher)
+  const dispatcherSpeaker = rawUtterances[0]?.speaker ?? 0;
+
+  const utterances: TranscriptUtterance[] = rawUtterances.map((u) => ({
+    speaker: u.speaker === dispatcherSpeaker ? "dispatcher" : "caller",
+    text: u.transcript.trim(),
+    start: u.start,
+  }));
+
+  // Format as readable chat-style text
+  const transcript = utterances
+    .map((u) => {
+      const label = u.speaker === "dispatcher" ? "Dispatcher" : "Customer";
+      return `${label}: ${u.text}`;
+    })
+    .join("\n");
+
+  return { transcript, utterances };
 }
