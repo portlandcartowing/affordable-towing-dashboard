@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { transcribeRecording } from "@/lib/transcribe";
+import { parseTranscript } from "@/lib/transcriptParser";
 
 // ---------------------------------------------------------------------------
-// Twilio Recording Status Callback — fires when a call recording is ready.
+// Twilio Recording Status Callback
 //
-// 1. Saves recording URL + duration to the call record
-// 2. Converts the Twilio recording URL to our proxy URL (no auth needed)
-// 3. Kicks off post-call transcription via Twilio's Transcription API
+// Fires when a call recording is ready. This endpoint:
+// 1. Saves the recording URL (proxied, no auth needed)
+// 2. Saves call duration
+// 3. Auto-transcribes via Deepgram (no buttons, no manual steps)
+// 4. Parses transcript for structured fields
+// 5. Generates AI summary
 // ---------------------------------------------------------------------------
 
 export async function POST(req: NextRequest) {
@@ -22,93 +27,74 @@ export async function POST(req: NextRequest) {
 
   const baseUrl = `https://${req.headers.get("host")}`;
 
-  // Find the call by the Twilio SID stored in notes during creation
+  // Find the call by Twilio SID
   const { data: calls } = await supabase
     .from("calls")
     .select("id")
     .like("notes", `%${callSid}%`)
     .limit(1);
 
-  if (calls && calls.length > 0) {
-    const callId = calls[0].id;
+  if (!calls || calls.length === 0) {
+    return NextResponse.json({ ok: false, error: "Call not found" });
+  }
 
-    // Save recording URL as our proxy URL (no Twilio auth needed)
-    const update: Record<string, unknown> = {};
-    if (recordingSid) {
-      update.recording_url = `${baseUrl}/api/twilio/recording/${recordingSid}`;
-    } else if (recordingUrl) {
-      update.recording_url = `${recordingUrl}.mp3`;
-    }
-    if (recordingDuration) {
-      update.duration_seconds = parseInt(recordingDuration, 10);
-    }
+  const callId = calls[0].id;
 
-    await supabase.from("calls").update(update).eq("id", callId);
+  // Build proxy URL for the recording
+  const proxyRecordingUrl = recordingSid
+    ? `${baseUrl}/api/twilio/recording/${recordingSid}`
+    : recordingUrl
+    ? `${recordingUrl}.mp3`
+    : null;
 
-    // Kick off transcription via Twilio API (async, non-blocking)
-    if (recordingSid) {
-      transcribeRecording(recordingSid, callId, baseUrl).catch((err) => {
-        console.error("Transcription kickoff failed:", err);
-      });
+  // Save recording URL + duration immediately
+  const update: Record<string, unknown> = {};
+  if (proxyRecordingUrl) update.recording_url = proxyRecordingUrl;
+  if (recordingDuration) update.duration_seconds = parseInt(recordingDuration, 10);
+  update.ai_summary = "Transcribing…";
+
+  await supabase.from("calls").update(update).eq("id", callId);
+
+  // Auto-transcribe with Deepgram (runs async but we await it)
+  if (proxyRecordingUrl) {
+    try {
+      const transcript = await transcribeRecording(proxyRecordingUrl);
+
+      if (transcript) {
+        // Parse transcript for structured fields
+        const parsed = parseTranscript(transcript);
+
+        // Build summary
+        const parts: string[] = [];
+        if (parsed.service_type) parts.push(parsed.service_type);
+        if (parsed.vehicle) parts.push(parsed.vehicle);
+        if (parsed.pickup_city && parsed.dropoff_city) {
+          parts.push(`${parsed.pickup_city} → ${parsed.dropoff_city}`);
+        } else if (parsed.pickup_city) {
+          parts.push(`in ${parsed.pickup_city}`);
+        }
+        if (parsed.urgency === "asap") parts.push("ASAP");
+
+        const aiSummary = parts.length > 0
+          ? parts.join(" · ")
+          : "Call transcribed — see transcript below";
+
+        await supabase.from("calls").update({
+          transcript,
+          ai_summary: aiSummary,
+        }).eq("id", callId);
+      } else {
+        await supabase.from("calls").update({
+          ai_summary: "Transcription failed — recording available for playback",
+        }).eq("id", callId);
+      }
+    } catch (err) {
+      console.error("Auto-transcription error:", err);
+      await supabase.from("calls").update({
+        ai_summary: "Transcription error — recording available for playback",
+      }).eq("id", callId);
     }
   }
 
   return NextResponse.json({ ok: true });
-}
-
-// ---------------------------------------------------------------------------
-// Post-call transcription. Uses Twilio's built-in transcription API.
-// When the transcription completes, Twilio POSTs to our callback.
-// ---------------------------------------------------------------------------
-
-async function transcribeRecording(
-  recordingSid: string,
-  callId: string,
-  baseUrl: string,
-) {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID!;
-  const authToken = process.env.TWILIO_AUTH_TOKEN!;
-
-  try {
-    // Use Twilio REST API directly to request transcription
-    const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${recordingSid}/Transcriptions.json`;
-    const auth = "Basic " + Buffer.from(`${accountSid}:${authToken}`).toString("base64");
-
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: auth,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        StatusCallback: `${baseUrl}/api/twilio/transcription-complete?callId=${callId}`,
-        StatusCallbackMethod: "POST",
-      }),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error("Twilio transcription request failed:", res.status, errText);
-      await transcribeWithFetch(recordingSid, callId, baseUrl);
-    }
-  } catch (err) {
-    console.error("Twilio transcription error:", err);
-    await transcribeWithFetch(recordingSid, callId, baseUrl);
-  }
-}
-
-// Fallback: download recording and store a placeholder until we wire
-// a real STT service (Deepgram/Whisper)
-async function transcribeWithFetch(
-  recordingSid: string,
-  callId: string,
-  _baseUrl: string,
-) {
-  // Mark that transcription is pending
-  await supabase
-    .from("calls")
-    .update({
-      ai_summary: `Recording saved (${recordingSid}). Transcription processing…`,
-    })
-    .eq("id", callId);
 }

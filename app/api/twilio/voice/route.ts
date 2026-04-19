@@ -22,7 +22,13 @@ export async function POST(req: NextRequest) {
     const dialedNumber = (body.get("To") as string) || null;
     const callSid = (body.get("CallSid") as string) || null;
 
-    const forwardTo = process.env.FORWARD_PHONE_NUMBER || "";
+    // Route calls based on which number was dialed:
+    // - 1991 (testing) → TEST_FORWARD_NUMBER
+    // - All others (7014 GMB, 6323 Ads) → FORWARD_PHONE_NUMBER (production)
+    const testNumber = process.env.TWILIO_PHONE_NUMBER || "";
+    const forwardTo = dialedNumber === testNumber
+      ? (process.env.TEST_FORWARD_NUMBER || process.env.FORWARD_PHONE_NUMBER || "")
+      : (process.env.FORWARD_PHONE_NUMBER || "");
     const baseUrl = `https://${req.headers.get("host")}`;
     const statusCallback = `${baseUrl}/api/twilio/status`;
 
@@ -45,7 +51,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Create call record — triggers Supabase Realtime → driver app updates
-    await supabase.from("calls").insert({
+    const { data: callRecord } = await supabase.from("calls").insert({
       caller_phone: callerPhone,
       source,
       tracking_number: dialedNumber,
@@ -53,7 +59,47 @@ export async function POST(req: NextRequest) {
       started_at: new Date().toISOString(),
       duration_seconds: 0,
       notes: callSid ? `twilio_sid:${callSid}` : null,
-    });
+    }).select("id").single();
+
+    // Match this call to a recent click event from the website DNI script.
+    // Looks for a click on the same tracking number in the last 5 minutes
+    // that hasn't been matched to a call yet.
+    if (callRecord && dialedNumber) {
+      const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString();
+      const { data: click } = await supabase
+        .from("click_events")
+        .select("id, source, utm_campaign, utm_adgroup, utm_source, utm_medium, utm_term")
+        .eq("phone_clicked", dialedNumber)
+        .is("call_id", null)
+        .gte("created_at", fiveMinAgo)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (click) {
+        // Link click event to this call
+        await supabase
+          .from("click_events")
+          .update({ call_id: callRecord.id })
+          .eq("id", click.id);
+
+        // Enrich call with campaign data from the click
+        const enrichedSource = click.source || source;
+        const campaignNote = [
+          click.utm_campaign && `campaign:${click.utm_campaign}`,
+          click.utm_adgroup && `adgroup:${click.utm_adgroup}`,
+          click.utm_term && `keyword:${click.utm_term}`,
+        ].filter(Boolean).join(" | ");
+
+        await supabase
+          .from("calls")
+          .update({
+            source: enrichedSource,
+            ai_summary: campaignNote || null,
+          })
+          .eq("id", callRecord.id);
+      }
+    }
 
     // Fire push notification to wake driver's phone (non-blocking)
     fetch(`${baseUrl}/api/push/notify`, {
