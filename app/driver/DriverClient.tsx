@@ -349,19 +349,33 @@ export default function DriverClient() {
 
   // ---- Answer incoming call ----
   const handleAnswer = () => {
-    if (activeCallRef.current) {
-      activeCallRef.current.accept();
-      setScreen("live");
+    const c = activeCallRef.current;
+    if (c) {
+      try {
+        c.accept();
+        setScreen("live");
+        showToast("Connected");
+      } catch (err) {
+        showToast("Answer failed: " + String(err));
+      }
+    } else {
+      showToast("No active call to answer");
     }
   };
 
   // ---- Decline incoming call ----
   const handleDecline = () => {
-    if (activeCallRef.current) {
-      activeCallRef.current.reject();
+    const c = activeCallRef.current;
+    if (c) {
+      try {
+        c.reject();
+      } catch {
+        c.disconnect();
+      }
       activeCallRef.current = null;
     }
     setScreen("idle");
+    showToast("Call declined");
   };
 
   // ---- Hang up ----
@@ -474,10 +488,11 @@ export default function DriverClient() {
   // RINGING SCREEN — incoming call, answer or decline
   // =====================================================================
   if (screen === "ringing") {
+    const hasActiveCall = !!activeCallRef.current;
     return (
       <div
         className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-gradient-to-b from-blue-900 to-slate-900"
-        style={{ touchAction: "none", userSelect: "none", WebkitUserSelect: "none" }}
+        style={{ touchAction: "none", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" }}
       >
         <div className="w-24 h-24 rounded-full bg-blue-500 flex items-center justify-center mb-6 animate-pulse">
           <span className="text-4xl">📞</span>
@@ -486,31 +501,34 @@ export default function DriverClient() {
         <p className="text-blue-300 text-lg tabular-nums font-bold mb-2">
           {call?.caller_phone || "Unknown"}
         </p>
-        <p className="text-slate-400 text-sm mb-12">
+        <p className="text-slate-400 text-sm mb-3">
           {call?.source || "unknown"} source
         </p>
+        <p className="text-[10px] text-slate-500 mb-8">
+          {hasActiveCall ? "VoIP ready" : "Waiting for connection…"}
+        </p>
         <div className="flex gap-12">
-          <div className="flex flex-col items-center gap-2">
-            <button
-              onTouchEnd={(e) => { e.preventDefault(); handleDecline(); }}
-              onClick={handleDecline}
-              className="w-20 h-20 rounded-full bg-rose-600 active:bg-rose-500 flex items-center justify-center text-3xl shadow-lg shadow-rose-600/30"
-              style={{ touchAction: "manipulation" }}
+          <div className="flex flex-col items-center gap-3">
+            <div
+              role="button"
+              tabIndex={0}
+              onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); handleDecline(); }}
+              className="w-24 h-24 rounded-full bg-rose-600 active:bg-rose-500 flex items-center justify-center text-4xl shadow-lg shadow-rose-600/30 cursor-pointer select-none"
             >
               ✕
-            </button>
-            <span className="text-sm text-rose-400 font-medium">Decline</span>
+            </div>
+            <span className="text-sm text-rose-400 font-semibold">Decline</span>
           </div>
-          <div className="flex flex-col items-center gap-2">
-            <button
-              onTouchEnd={(e) => { e.preventDefault(); handleAnswer(); }}
-              onClick={handleAnswer}
-              className="w-20 h-20 rounded-full bg-emerald-600 active:bg-emerald-500 flex items-center justify-center text-3xl shadow-lg shadow-emerald-600/30 animate-bounce"
-              style={{ touchAction: "manipulation" }}
+          <div className="flex flex-col items-center gap-3">
+            <div
+              role="button"
+              tabIndex={0}
+              onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); handleAnswer(); }}
+              className="w-24 h-24 rounded-full bg-emerald-600 active:bg-emerald-500 flex items-center justify-center text-4xl shadow-lg shadow-emerald-600/30 animate-bounce cursor-pointer select-none"
             >
               ✓
-            </button>
-            <span className="text-sm text-emerald-400 font-medium">Answer</span>
+            </div>
+            <span className="text-sm text-emerald-400 font-semibold">Answer</span>
           </div>
         </div>
       </div>
