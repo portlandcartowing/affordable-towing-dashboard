@@ -3,6 +3,7 @@
 import { useState } from "react";
 import BookedToggle from "./BookedToggle";
 import CreateJobButton from "./CreateJobButton";
+import DeleteLeadButton from "./DeleteLeadButton";
 import EmptyState from "@/components/dashboard/EmptyState";
 import type { Lead } from "@/lib/types";
 
@@ -169,8 +170,9 @@ export default function LeadsTable({
                 <>
                   <LeadDetail lead={lead} hasJob={hasJob} />
                   <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between gap-3">
-                    <div onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
                       <BookedToggle id={lead.id} booked={!!lead.booked} />
+                      <DeleteLeadButton leadId={lead.id} />
                     </div>
                     <CreateJobButton
                       leadId={lead.id}
@@ -235,11 +237,14 @@ export default function LeadsTable({
                       {formatPrice(lead.price)}
                     </td>
                     <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                      <CreateJobButton
-                        leadId={lead.id}
-                        hasJob={hasJob}
-                        booked={!!lead.booked}
-                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <DeleteLeadButton leadId={lead.id} />
+                        <CreateJobButton
+                          leadId={lead.id}
+                          hasJob={hasJob}
+                          booked={!!lead.booked}
+                        />
+                      </div>
                     </td>
                   </tr>
                   {isOpen && (
