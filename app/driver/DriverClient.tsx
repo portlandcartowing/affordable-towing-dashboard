@@ -255,6 +255,12 @@ export default function DriverClient() {
     setTimeout(() => setToast(null), 2500);
   };
 
+  // ---- Sign out ----
+  const handleSignOut = async () => {
+    await sbClient.auth.signOut();
+    router.replace("/driver/login");
+  };
+
   // ---- Disposition handlers ----
   const handleBooked = useCallback(async () => {
     if (!call) return;
@@ -354,6 +360,13 @@ export default function DriverClient() {
             <span className="text-sm font-bold tabular-nums">${ratePerMile}/mi</span>
           </div>
         </div>
+
+        <button
+          onClick={handleSignOut}
+          className="mt-8 text-xs text-slate-600 hover:text-slate-400 transition-colors"
+        >
+          Sign out
+        </button>
       </div>
     );
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import QueuePanel from "./components/QueuePanel";
 import TranscriptPanel from "./components/TranscriptPanel";
 import CopilotPanel from "./components/CopilotPanel";
@@ -16,7 +16,6 @@ import {
   PostCallSummary,
 } from "./components/Previews";
 import StatusBadge from "./components/StatusBadge";
-import { deriveExtractedFields } from "./extract";
 import type { CallCenterCall, CallCenterStatus, LostReason } from "./types";
 
 type Props = { initialCalls: CallCenterCall[] };
@@ -33,7 +32,7 @@ function toMap(calls: CallCenterCall[]): CallMap {
 export default function CallCenterClient({ initialCalls }: Props) {
   const [calls, setCalls] = useState<CallMap>(() => toMap(initialCalls));
   const [selectedId, setSelectedId] = useState<string>(
-    () => initialCalls.find((c) => c.status === "live")?.id ?? initialCalls[0].id,
+    () => initialCalls.find((c) => c.status === "live")?.id ?? initialCalls[0]?.id ?? "",
   );
   const [showLostModal, setShowLostModal] = useState(false);
   const [showCallbackModal, setShowCallbackModal] = useState(false);
@@ -56,28 +55,7 @@ export default function CallCenterClient({ initialCalls }: Props) {
     [],
   );
 
-  // ---- mock live transcript streamer ----
-  useEffect(() => {
-    if (!selected || selected.status !== "live") return;
-    if (!selected.scripted_remaining || selected.scripted_remaining.length === 0)
-      return;
-
-    const t = setTimeout(() => {
-      patch(selected.id, (c) => {
-        if (!c.scripted_remaining || c.scripted_remaining.length === 0) return c;
-        const [next, ...rest] = c.scripted_remaining;
-        const transcript = [...c.transcript, next];
-        return {
-          ...c,
-          transcript,
-          scripted_remaining: rest,
-          duration_seconds: c.duration_seconds + 3,
-          extracted: deriveExtractedFields(transcript, c.extracted),
-        };
-      });
-    }, 2500);
-    return () => clearTimeout(t);
-  }, [selected, patch]);
+  // TODO: Replace with Supabase realtime subscription for live transcript updates
 
   const quoteState: QuoteHelperState | null = selected
     ? {
@@ -194,7 +172,17 @@ export default function CallCenterClient({ initialCalls }: Props) {
   );
 
   if (!selected || !quoteState || !handlers || !readiness) {
-    return <div className="p-6 text-sm text-slate-500">No calls in queue.</div>;
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="text-center space-y-3">
+          <div className="text-4xl">☎</div>
+          <div className="text-lg font-semibold text-slate-700">No calls in queue</div>
+          <div className="text-sm text-slate-500 max-w-sm">
+            Inbound calls will appear here automatically when customers call your tracking numbers.
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
