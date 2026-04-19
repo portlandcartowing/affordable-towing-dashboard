@@ -475,7 +475,10 @@ export default function DriverClient() {
   // =====================================================================
   if (screen === "ringing") {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-gradient-to-b from-blue-900 to-slate-900">
+      <div
+        className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-gradient-to-b from-blue-900 to-slate-900"
+        style={{ touchAction: "none", userSelect: "none", WebkitUserSelect: "none" }}
+      >
         <div className="w-24 h-24 rounded-full bg-blue-500 flex items-center justify-center mb-6 animate-pulse">
           <span className="text-4xl">📞</span>
         </div>
@@ -486,23 +489,29 @@ export default function DriverClient() {
         <p className="text-slate-400 text-sm mb-12">
           {call?.source || "unknown"} source
         </p>
-        <div className="flex gap-8">
-          <button
-            onClick={handleDecline}
-            className="w-20 h-20 rounded-full bg-rose-600 hover:bg-rose-500 flex items-center justify-center text-3xl active:scale-95 transition-transform shadow-lg shadow-rose-600/30"
-          >
-            ✕
-          </button>
-          <button
-            onClick={handleAnswer}
-            className="w-20 h-20 rounded-full bg-emerald-600 hover:bg-emerald-500 flex items-center justify-center text-3xl active:scale-95 transition-transform shadow-lg shadow-emerald-600/30 animate-bounce"
-          >
-            ✓
-          </button>
-        </div>
-        <div className="flex gap-8 mt-3">
-          <span className="text-sm text-rose-400 font-medium w-20 text-center">Decline</span>
-          <span className="text-sm text-emerald-400 font-medium w-20 text-center">Answer</span>
+        <div className="flex gap-12">
+          <div className="flex flex-col items-center gap-2">
+            <button
+              onTouchEnd={(e) => { e.preventDefault(); handleDecline(); }}
+              onClick={handleDecline}
+              className="w-20 h-20 rounded-full bg-rose-600 active:bg-rose-500 flex items-center justify-center text-3xl shadow-lg shadow-rose-600/30"
+              style={{ touchAction: "manipulation" }}
+            >
+              ✕
+            </button>
+            <span className="text-sm text-rose-400 font-medium">Decline</span>
+          </div>
+          <div className="flex flex-col items-center gap-2">
+            <button
+              onTouchEnd={(e) => { e.preventDefault(); handleAnswer(); }}
+              onClick={handleAnswer}
+              className="w-20 h-20 rounded-full bg-emerald-600 active:bg-emerald-500 flex items-center justify-center text-3xl shadow-lg shadow-emerald-600/30 animate-bounce"
+              style={{ touchAction: "manipulation" }}
+            >
+              ✓
+            </button>
+            <span className="text-sm text-emerald-400 font-medium">Answer</span>
+          </div>
         </div>
       </div>
     );
