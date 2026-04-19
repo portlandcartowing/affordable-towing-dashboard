@@ -232,19 +232,29 @@ export default function CallsTable({
       {/* Desktop table */}
       <div className="hidden md:block bg-white rounded-2xl ring-1 ring-slate-200/70 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
+          <table className="w-full text-sm table-fixed">
+            <colgroup>
+              <col className="w-10" />
+              <col className="w-[140px]" />
+              <col className="w-[130px]" />
+              <col className="w-[100px]" />
+              <col className="w-[80px]" />
+              <col className="w-[100px]" />
+              <col />
+              <col className="w-[160px]" />
+            </colgroup>
+            <thead className="bg-slate-50 text-slate-500 text-[11px] uppercase tracking-wide">
               <tr>
-                <th className="px-4 py-3 w-10">
-                  <input type="checkbox" checked={selected.size === sorted.length && sorted.length > 0} onChange={toggleAll} className="h-4 w-4 rounded border-slate-300" />
+                <th className="px-3 py-2.5">
+                  <input type="checkbox" checked={selected.size === sorted.length && sorted.length > 0} onChange={toggleAll} className="h-3.5 w-3.5 rounded border-slate-300" />
                 </th>
-                <th className="text-left px-4 py-3 cursor-pointer select-none whitespace-nowrap" onClick={() => toggleSort("time")}>Date / Time {sortArrow("time")}</th>
-                <th className="text-left px-4 py-3 cursor-pointer select-none" onClick={() => toggleSort("caller")}>Caller {sortArrow("caller")}</th>
-                <th className="text-left px-4 py-3 cursor-pointer select-none" onClick={() => toggleSort("source")}>Source {sortArrow("source")}</th>
-                <th className="text-left px-4 py-3 cursor-pointer select-none" onClick={() => toggleSort("duration")}>Duration {sortArrow("duration")}</th>
-                <th className="text-left px-4 py-3 cursor-pointer select-none" onClick={() => toggleSort("disposition")}>Disposition {sortArrow("disposition")}</th>
-                <th className="text-left px-4 py-3">Transcript</th>
-                <th className="text-right px-4 py-3">Actions</th>
+                <th className="text-left px-3 py-2.5 cursor-pointer select-none" onClick={() => toggleSort("time")}>Date / Time {sortArrow("time")}</th>
+                <th className="text-left px-3 py-2.5 cursor-pointer select-none" onClick={() => toggleSort("caller")}>Caller {sortArrow("caller")}</th>
+                <th className="text-left px-3 py-2.5 cursor-pointer select-none" onClick={() => toggleSort("source")}>Source {sortArrow("source")}</th>
+                <th className="text-left px-3 py-2.5 cursor-pointer select-none" onClick={() => toggleSort("duration")}>Dur. {sortArrow("duration")}</th>
+                <th className="text-left px-3 py-2.5 cursor-pointer select-none" onClick={() => toggleSort("disposition")}>Status {sortArrow("disposition")}</th>
+                <th className="text-left px-3 py-2.5">Transcript</th>
+                <th className="text-right px-3 py-2.5">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -253,20 +263,21 @@ export default function CallsTable({
                 const isOpen = expandedId === call.id;
                 const isSelected = selected.has(call.id);
                 return (
-                  <tbody key={call.id}>
+                  <>
                     <tr
+                      key={call.id}
                       className={`border-t border-slate-100 cursor-pointer transition-colors ${isOpen ? "bg-blue-50/40" : isSelected ? "bg-blue-50/20" : "hover:bg-slate-50/50"}`}
                     >
-                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                        <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(call.id)} className="h-4 w-4 rounded border-slate-300" />
+                      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(call.id)} className="h-3.5 w-3.5 rounded border-slate-300" />
                       </td>
-                      <td className="px-4 py-3 text-slate-500 whitespace-nowrap" onClick={() => toggle(call.id)}>{formatTime(call.started_at || call.created_at)}</td>
-                      <td className="px-4 py-3 font-medium whitespace-nowrap" onClick={() => toggle(call.id)}><span className="text-blue-600">{call.caller_phone || "—"}</span></td>
-                      <td className="px-4 py-3" onClick={() => toggle(call.id)}><span className="px-2 py-1 text-xs rounded-full bg-blue-50 text-blue-700">{call.source || "unknown"}</span></td>
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap tabular-nums" onClick={() => toggle(call.id)}>{formatDuration(call.duration_seconds)}</td>
-                      <td className="px-4 py-3" onClick={() => toggle(call.id)}><DispositionBadge d={call.disposition} /></td>
-                      <td className="px-4 py-3 text-slate-500 max-w-[200px] truncate" onClick={() => toggle(call.id)}>{truncate(call.transcript, 50)}</td>
-                      <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-3 py-2.5 text-slate-500 text-xs whitespace-nowrap" onClick={() => toggle(call.id)}>{formatTime(call.started_at || call.created_at)}</td>
+                      <td className="px-3 py-2.5 font-medium text-xs whitespace-nowrap" onClick={() => toggle(call.id)}><span className="text-blue-600">{call.caller_phone || "—"}</span></td>
+                      <td className="px-3 py-2.5" onClick={() => toggle(call.id)}><span className="px-2 py-0.5 text-[10px] rounded-full bg-blue-50 text-blue-700 font-medium">{call.source || "?"}</span></td>
+                      <td className="px-3 py-2.5 text-slate-600 text-xs whitespace-nowrap tabular-nums" onClick={() => toggle(call.id)}>{formatDuration(call.duration_seconds)}</td>
+                      <td className="px-3 py-2.5" onClick={() => toggle(call.id)}><DispositionBadge d={call.disposition} /></td>
+                      <td className="px-3 py-2.5 text-slate-500 text-xs truncate" onClick={() => toggle(call.id)}>{truncate(call.transcript, 40)}</td>
+                      <td className="px-3 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-2">
                           <DeleteCallButton callId={call.id} />
                           <LinkStatus call={call} leadHasJob={leadHasJob} />
@@ -274,9 +285,9 @@ export default function CallsTable({
                       </td>
                     </tr>
                     {isOpen && (
-                      <tr><td colSpan={8} className="p-0"><CallDetail call={call} /></td></tr>
+                      <tr key={`${call.id}-detail`}><td colSpan={8} className="p-0"><CallDetail call={call} /></td></tr>
                     )}
-                  </tbody>
+                  </>
                 );
               })}
             </tbody>
