@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 import QueuePanel from "./components/QueuePanel";
 import TranscriptPanel from "./components/TranscriptPanel";
 import CopilotPanel from "./components/CopilotPanel";
@@ -16,13 +17,31 @@ import {
   PostCallSummary,
 } from "./components/Previews";
 import StatusBadge from "./components/StatusBadge";
+import { deriveExtractedFields } from "./extract";
+import { mapCallToCallCenter } from "./mapCall";
+import {
+  dispatchBooked,
+  dispatchLost,
+  dispatchCallback,
+  sendConfirmationText,
+} from "./actions";
 import type { CallCenterCall, CallCenterStatus, LostReason } from "./types";
+import type { Call } from "@/lib/types";
 
 type Props = { initialCalls: CallCenterCall[] };
 type CallMap = Record<string, CallCenterCall>;
 
 function toMap(calls: CallCenterCall[]): CallMap {
   return Object.fromEntries(calls.map((c) => [c.id, c]));
+}
+
+// ---------------------------------------------------------------------------
+// Supabase client for realtime — runs in the browser
+// ---------------------------------------------------------------------------
+function getRealtimeClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  return createClient(url, key);
 }
 
 // ---------------------------------------------------------------------------
@@ -37,6 +56,7 @@ export default function CallCenterClient({ initialCalls }: Props) {
   const [showLostModal, setShowLostModal] = useState(false);
   const [showCallbackModal, setShowCallbackModal] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [actionPending, setActionPending] = useState(false);
 
   const selected = calls[selectedId];
   const callList = useMemo(
@@ -50,12 +70,68 @@ export default function CallCenterClient({ initialCalls }: Props) {
 
   const patch = useCallback(
     (id: string, updater: (c: CallCenterCall) => CallCenterCall) => {
-      setCalls((prev) => ({ ...prev, [id]: updater(prev[id]) }));
+      setCalls((prev) => {
+        if (!prev[id]) return prev;
+        return { ...prev, [id]: updater(prev[id]) };
+      });
     },
     [],
   );
 
-  // TODO: Replace with Supabase realtime subscription for live transcript updates
+  // ---- Supabase realtime: listen for new/updated calls ----
+  useEffect(() => {
+    const client = getRealtimeClient();
+
+    const channel = client
+      .channel("call-center-live")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "calls" },
+        (payload) => {
+          const newCall = mapCallToCallCenter(payload.new as Call);
+          setCalls((prev) => ({ [newCall.id]: newCall, ...prev }));
+          // Auto-select new live calls
+          setSelectedId(newCall.id);
+          showToast("New call incoming");
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "calls" },
+        (payload) => {
+          const updated = payload.new as Call;
+          setCalls((prev) => {
+            if (!prev[updated.id]) return prev;
+            const existing = prev[updated.id];
+            const mapped = mapCallToCallCenter(updated);
+            // Preserve local state that hasn't been persisted yet
+            return {
+              ...prev,
+              [updated.id]: {
+                ...mapped,
+                // Keep local quote state if not yet persisted
+                quote_base: existing.quote_base,
+                quote_mileage: existing.quote_mileage,
+                quote_non_runner: existing.quote_non_runner,
+                quote_after_hours: existing.quote_after_hours,
+                // Keep local notes if the server hasn't updated them
+                notes: mapped.notes || existing.notes,
+                // Re-derive extracted fields from updated transcript
+                extracted: mapped.transcript.length > existing.transcript.length
+                  ? deriveExtractedFields(mapped.transcript, existing.extracted)
+                  : existing.extracted,
+              },
+            };
+          });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      client.removeChannel(channel);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const quoteState: QuoteHelperState | null = selected
     ? {
@@ -85,7 +161,7 @@ export default function CallCenterClient({ initialCalls }: Props) {
             ...c.extracted,
             service_type: {
               value: patchState.service_type,
-              confidence: "high",
+              confidence: "high" as const,
             },
           }
         : c.extracted,
@@ -99,7 +175,7 @@ export default function CallCenterClient({ initialCalls }: Props) {
       final_quote: finalQuote,
       extracted: {
         ...c.extracted,
-        quoted_price: { value: finalQuote, confidence: "high" },
+        quoted_price: { value: finalQuote, confidence: "high" as const },
       },
     }));
     showToast(`Final quote $${finalQuote} locked in`);
@@ -120,53 +196,128 @@ export default function CallCenterClient({ initialCalls }: Props) {
 
   const readiness = selected ? getReadiness(selected) : null;
 
+  // ---------------------------------------------------------------------------
+  // Action handlers — wired to real server actions
+  // ---------------------------------------------------------------------------
   const handlers = selected
     ? {
         onMarkQuoted: () => {
           setStatus(selected.id, "quoted");
           showToast("Marked as quoted");
         },
-        onBookJob: () => {
-          patch(selected.id, (c) => ({
-            ...c,
-            status: "booked",
-            extracted: {
-              ...c.extracted,
-              booked: { value: true, confidence: "high" },
-            },
-          }));
-          showToast("Job booked · notifications staged");
+
+        onBookJob: async () => {
+          if (actionPending) return;
+          setActionPending(true);
+          const e = selected.extracted;
+          const result = await dispatchBooked(selected.id, {
+            customer: e.customer_name.value,
+            phone: e.callback_phone.value,
+            service: e.service_type.value,
+            pickup_city: e.pickup_address.value,
+            dropoff_city: e.dropoff_address.value,
+            vehicle_year: e.vehicle_year.value ? parseInt(e.vehicle_year.value) : null,
+            vehicle_make: e.vehicle_make.value,
+            vehicle_model: e.vehicle_model.value,
+            price: selected.final_quote ?? e.quoted_price.value,
+            notes: selected.notes,
+          });
+          setActionPending(false);
+
+          if (result.ok) {
+            patch(selected.id, (c) => ({
+              ...c,
+              status: "booked",
+              extracted: {
+                ...c.extracted,
+                booked: { value: true, confidence: "high" as const },
+              },
+            }));
+            showToast("Job booked + lead created");
+          } else {
+            showToast(`Error: ${result.error}`);
+          }
         },
+
         onMarkLost: () => setShowLostModal(true),
         onSetCallback: () => setShowCallbackModal(true),
-        onSendToDriver: () => showToast("Driver notification queued"),
-        onSendConfirmation: () => showToast("Customer text queued"),
-        onSaveNotes: () => showToast("Notes saved"),
+
+        onSendToDriver: () => {
+          // TODO: Wire to push notification to driver
+          showToast("Driver notification queued");
+        },
+
+        onSendConfirmation: async () => {
+          const phone = selected.extracted.callback_phone.value;
+          if (!phone) {
+            showToast("No phone number to send to");
+            return;
+          }
+          setActionPending(true);
+          const result = await sendConfirmationText(
+            phone,
+            selected.extracted.customer_name.value,
+            selected.final_quote ?? selected.extracted.quoted_price.value,
+          );
+          setActionPending(false);
+          showToast(result.ok ? "Confirmation text sent" : `SMS failed: ${result.error}`);
+        },
+
+        onSaveNotes: async () => {
+          // Save notes to Supabase directly
+          const client = getRealtimeClient();
+          await client
+            .from("calls")
+            .update({ notes: selected.notes })
+            .eq("id", selected.id);
+          showToast("Notes saved");
+        },
       }
     : null;
 
-  const confirmLost = (reason: LostReason) => {
+  const confirmLost = async (reason: LostReason) => {
     if (!selected) return;
-    patch(selected.id, (c) => ({ ...c, status: "lost", lost_reason: reason }));
-    setShowLostModal(false);
-    showToast(`Lost · ${reason}`);
-  };
-
-  const confirmCallback = (iso: string) => {
-    if (!selected) return;
-    patch(selected.id, (c) => ({ ...c, status: "callback", callback_at: iso }));
-    setShowCallbackModal(false);
-    showToast(
-      `Callback · ${new Date(iso).toLocaleTimeString(undefined, {
-        hour: "2-digit",
-        minute: "2-digit",
-      })}`,
+    setActionPending(true);
+    const result = await dispatchLost(
+      selected.id,
+      reason as import("@/lib/types").LostReason,
+      selected.final_quote ?? selected.extracted.quoted_price.value,
     );
+    setActionPending(false);
+
+    if (result.ok) {
+      patch(selected.id, (c) => ({ ...c, status: "lost", lost_reason: reason }));
+      setShowLostModal(false);
+      showToast(`Lost · ${reason}`);
+    } else {
+      showToast("Error saving lost reason");
+    }
   };
 
-  // Book Job requires at least "almost_ready" — missing one field is OK
-  // (usually customer name can be typed post-call), but the operator can't
-  // book a blank slate.
+  const confirmCallback = async (iso: string) => {
+    if (!selected) return;
+    setActionPending(true);
+    const result = await dispatchCallback(
+      selected.id,
+      iso,
+      selected.extracted.callback_phone.value,
+    );
+    setActionPending(false);
+
+    if (result.ok) {
+      patch(selected.id, (c) => ({ ...c, status: "callback", callback_at: iso }));
+      setShowCallbackModal(false);
+      showToast(
+        `Callback · ${new Date(iso).toLocaleTimeString(undefined, {
+          hour: "2-digit",
+          minute: "2-digit",
+        })}`,
+      );
+    } else {
+      showToast("Error setting callback");
+    }
+  };
+
   const canBook = Boolean(
     readiness && (readiness.level === "ready" || readiness.level === "almost_ready"),
   );
@@ -285,8 +436,7 @@ export default function CallCenterClient({ initialCalls }: Props) {
 }
 
 // ---------------------------------------------------------------------------
-// ActiveCallHeader — tight single-row header. Caller, status, duration,
-// and context chips on one line.
+// ActiveCallHeader
 // ---------------------------------------------------------------------------
 
 function ActiveCallHeader({ call }: { call: CallCenterCall }) {

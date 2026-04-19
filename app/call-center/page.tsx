@@ -1,22 +1,38 @@
 import Topbar from "@/components/dashboard/Topbar";
 import CallCenterClient from "./CallCenterClient";
+import { supabase } from "@/lib/supabase";
+import { mapCallToCallCenter } from "./mapCall";
 import { MOCK_CALLS } from "./mockData";
+import type { Call } from "@/lib/types";
 
-// Dispatcher panel. Currently runs entirely on mock data so the workflow
-// can be exercised end-to-end without telephony wired up. When Twilio /
-// real-time transcription is connected this page will become a server
-// component that fetches the live queue from Supabase and subscribes to
-// a realtime channel for transcript updates.
+// Always fetch fresh — dispatcher needs live data.
 export const dynamic = "force-dynamic";
 
-export default function CallCenterPage() {
+export default async function CallCenterPage() {
+  // Fetch today's calls from Supabase
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const { data: callRows } = await supabase
+    .from("calls")
+    .select("*")
+    .gte("created_at", todayStart.toISOString())
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  // Map Supabase rows to call center format
+  const realCalls = (callRows || []).map((row: Call) => mapCallToCallCenter(row));
+
+  // Use real calls if available, fall back to sample data for demo
+  const initialCalls = realCalls.length > 0 ? realCalls : MOCK_CALLS;
+
   return (
     <>
       <Topbar
         title="Call Center"
-        subtitle="Live inbound towing calls"
+        subtitle={realCalls.length > 0 ? "Live inbound calls" : "Sample data — calls will appear when customers call"}
       />
-      <CallCenterClient initialCalls={MOCK_CALLS} />
+      <CallCenterClient initialCalls={initialCalls} />
     </>
   );
 }

@@ -221,6 +221,8 @@ export default function DriverClient() {
   }, [screen, checkActiveCall]);
 
   // ---- Supabase Realtime: watch for new calls + transcript updates ----
+  const [realtimeStatus, setRealtimeStatus] = useState<string>("connecting");
+
   useEffect(() => {
     const channel = sbClient
       .channel("driver-calls")
@@ -231,7 +233,19 @@ export default function DriverClient() {
           const newCall = payload.new as CallRecord;
           if (newCall.disposition === "spam") return;
 
-          // New call came in — switch to active screen
+          // INCOMING CALL — alert the driver
+          // Play a sound to get attention
+          try {
+            const audio = new Audio("data:audio/wav;base64,UklGRl9vT19teleVBGXXQAbABpAG4A");
+            audio.play().catch(() => {});
+          } catch {}
+
+          // Vibrate if supported
+          if ("vibrate" in navigator) {
+            navigator.vibrate([300, 100, 300, 100, 300]);
+          }
+
+          // Switch to active screen
           setCall(newCall);
           setScreen("active");
           setElapsed(0);
@@ -276,7 +290,12 @@ export default function DriverClient() {
           }
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") setRealtimeStatus("connected");
+        else if (status === "CHANNEL_ERROR") setRealtimeStatus("error");
+        else if (status === "TIMED_OUT") setRealtimeStatus("timeout");
+        else setRealtimeStatus("connecting");
+      });
 
     return () => { sbClient.removeChannel(channel); };
   }, []);
@@ -396,11 +415,25 @@ export default function DriverClient() {
           Open this app during a call to see live info
         </p>
         <div className="flex items-center gap-2">
-          <span className="relative flex h-3 w-3">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-          </span>
-          <span className="text-sm text-emerald-400 font-medium">Online — listening</span>
+          {realtimeStatus === "connected" ? (
+            <>
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              </span>
+              <span className="text-sm text-emerald-400 font-medium">Online — listening</span>
+            </>
+          ) : realtimeStatus === "error" || realtimeStatus === "timeout" ? (
+            <>
+              <span className="w-3 h-3 rounded-full bg-rose-500"></span>
+              <span className="text-sm text-rose-400 font-medium">Connection lost — refresh app</span>
+            </>
+          ) : (
+            <>
+              <span className="w-3 h-3 rounded-full bg-amber-500 animate-pulse"></span>
+              <span className="text-sm text-amber-400 font-medium">Connecting…</span>
+            </>
+          )}
         </div>
 
         {/* Quick stats */}
