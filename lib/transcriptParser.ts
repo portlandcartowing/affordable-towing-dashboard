@@ -127,7 +127,7 @@ function detectLost(text: string): { is_lost: boolean; lost_reason: string | nul
 const SERVICE_PATTERNS: { type: ServiceType; re: RegExp }[] = [
   { type: "Long Distance Transport", re: /\b(long[\s-]?distance|transport|cross[\s-]?country|interstate|ship(?:ping)?\s+(?:my|a)\s+(?:car|vehicle|truck))\b/i },
   { type: "Jump Start",              re: /\b(jump[\s-]?start|dead\s+battery|battery\s+(?:is\s+)?dead|boost)\b/i },
-  { type: "Lockout",                 re: /\b(lock(?:ed)?\s+out|lockout|keys?\s+(?:are\s+)?(?:inside|locked|stuck))\b/i },
+  { type: "Lockout",                 re: /\b(lock(?:ed)?\s+out|lockout|lock(?:ed)?\s+(?:my\s+)?keys?\s+in|keys?\s+(?:are\s+)?(?:inside|locked|stuck))\b/i },
   { type: "Tire Change",             re: /\b(flat\s+tire|tire\s+(?:change|blown|popped)|spare\s+tire|blowout)\b/i },
   { type: "Fuel Delivery",           re: /\b(out\s+of\s+gas|ran\s+out\s+of\s+(?:gas|fuel)|fuel\s+delivery|need\s+gas)\b/i },
   { type: "Winch Out",               re: /\b(winch|stuck\s+in|pulled?\s+out\s+of|mud|ditch)\b/i },
@@ -155,19 +155,30 @@ const TO_RE = new RegExp(`\\bto\\s+(${CITY_WORD})`, "i");
 // Words that *look* like title-cased cities but aren't. Keeps the parser
 // from stamping "Honda" or "I" as a pickup city.
 const CITY_STOPWORDS = new Set([
-  "I", "Im", "My", "A", "An", "The", "Honda", "Toyota", "Ford", "Chevy",
+  "I", "Im", "My", "A", "An", "The", "It", "So", "Oh", "Hi", "Do", "No",
+  "Honda", "Toyota", "Ford", "Chevy",
   "Chevrolet", "Nissan", "BMW", "Mercedes", "Dodge", "Ram", "Jeep", "GMC",
   "Hyundai", "Kia", "Subaru", "Mazda", "Lexus", "Audi", "Volkswagen", "VW",
   "Tesla", "Acura", "Infiniti", "Cadillac", "Buick", "Lincoln", "Volvo",
   "Mitsubishi", "Porsche", "Civic", "Accord", "Camry", "Corolla", "Mustang",
   "Silverado", "Sierra", "Tacoma", "Tundra", "Explorer", "Escape", "Rav4",
+  // Common words that look title-cased in transcripts
+  "City", "Market", "Gas", "Station", "Address", "Drive", "Street", "Here",
+  "Yeah", "Yes", "Okay", "Sure", "Right", "Well", "Make", "Need",
+  // Body parts / vehicle parts / pronouns that match case-insensitively
+  "My", "His", "Her", "Our", "Your", "That", "This", "What", "Where",
+  "Car", "Truck", "Vehicle", "Van", "Keys", "Key", "Door",
 ]);
 
 function cleanCity(raw: string | undefined): string | null {
   if (!raw) return null;
   const trimmed = raw.trim().replace(/[.,!?]$/, "");
-  const first = trimmed.split(/\s+/)[0];
-  if (CITY_STOPWORDS.has(first)) return null;
+  const words = trimmed.split(/\s+/);
+  // Check first word case-insensitively against stopwords
+  const first = words[0];
+  for (const sw of CITY_STOPWORDS) {
+    if (sw.toLowerCase() === first.toLowerCase()) return null;
+  }
   return trimmed;
 }
 
