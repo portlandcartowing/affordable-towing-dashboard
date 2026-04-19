@@ -170,8 +170,6 @@ export default function DriverClient() {
 
   // ---- Check for active call: on mount, on focus, and on interval ----
   const checkActiveCall = useCallback(async () => {
-    if (!session) return;
-
     setPollCount((c) => c + 1);
 
     const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString();
@@ -206,7 +204,7 @@ export default function DriverClient() {
     } else {
       setLastPollResult("no active calls");
     }
-  }, [session, screen]);
+  }, [screen]);
 
   // Run on mount
   useEffect(() => { checkActiveCall(); }, [checkActiveCall]);
