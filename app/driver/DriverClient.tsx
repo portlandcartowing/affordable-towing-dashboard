@@ -105,6 +105,8 @@ export default function DriverClient() {
   const [ratePerMile, setRatePerMile] = useState(DEFAULT_RATE_PER_MILE);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [pollCount, setPollCount] = useState(0);
+  const [lastPollResult, setLastPollResult] = useState<string>("—");
 
   const estimate = hookupFee + miles * ratePerMile + (nonRunner ? NON_RUNNER_FEE : 0);
 
@@ -170,8 +172,10 @@ export default function DriverClient() {
   const checkActiveCall = useCallback(async () => {
     if (!session) return;
 
+    setPollCount((c) => c + 1);
+
     const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString();
-    const { data } = await sbClient
+    const { data, error } = await sbClient
       .from("calls")
       .select("*")
       .is("disposition", null)
@@ -179,8 +183,14 @@ export default function DriverClient() {
       .order("started_at", { ascending: false })
       .limit(1);
 
+    if (error) {
+      setLastPollResult("error: " + error.message);
+      return;
+    }
+
     if (data && data.length > 0) {
       const activeCall = data[0] as CallRecord;
+      setLastPollResult("found: " + (activeCall.caller_phone || "unknown"));
       setCall(activeCall);
       if (screen === "idle") setScreen("active");
       if (activeCall.transcript) {
@@ -193,6 +203,8 @@ export default function DriverClient() {
           urgency: parsed.urgency || prev.urgency,
         }));
       }
+    } else {
+      setLastPollResult("no active calls");
     }
   }, [session, screen]);
 
@@ -448,9 +460,14 @@ export default function DriverClient() {
           </div>
         </div>
 
+        {/* Debug — remove after testing */}
+        <div className="mt-6 text-[10px] text-slate-600 text-center tabular-nums">
+          polls: {pollCount} · {lastPollResult}
+        </div>
+
         <button
           onClick={handleSignOut}
-          className="mt-8 text-xs text-slate-600 hover:text-slate-400 transition-colors"
+          className="mt-4 text-xs text-slate-600 hover:text-slate-400 transition-colors"
         >
           Sign out
         </button>

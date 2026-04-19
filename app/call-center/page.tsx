@@ -2,7 +2,7 @@ import Topbar from "@/components/dashboard/Topbar";
 import CallCenterClient from "./CallCenterClient";
 import { supabase } from "@/lib/supabase";
 import { mapCallToCallCenter } from "./mapCall";
-import { MOCK_CALLS } from "./mockData";
+
 import type { Call } from "@/lib/types";
 
 // Always fetch fresh — dispatcher needs live data.
@@ -23,14 +23,13 @@ export default async function CallCenterPage() {
   // Map Supabase rows to call center format
   const realCalls = (callRows || []).map((row: Call) => mapCallToCallCenter(row));
 
-  // Use real calls if available, fall back to sample data for demo
-  const initialCalls = realCalls.length > 0 ? realCalls : MOCK_CALLS;
+  const initialCalls = realCalls;
 
   return (
     <>
       <Topbar
         title="Call Center"
-        subtitle={realCalls.length > 0 ? "Live inbound calls" : "Sample data — calls will appear when customers call"}
+        subtitle="Live inbound calls"
       />
       <CallCenterClient initialCalls={initialCalls} />
     </>
