@@ -166,6 +166,40 @@ export default function DriverClient() {
     setupPush();
   }, [session]);
 
+  // ---- On app open: check for any active call from the last 5 minutes ----
+  useEffect(() => {
+    if (!session) return;
+
+    async function checkActiveCall() {
+      const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString();
+      const { data } = await sbClient
+        .from("calls")
+        .select("*")
+        .is("disposition", null)
+        .gte("started_at", fiveMinAgo)
+        .order("started_at", { ascending: false })
+        .limit(1);
+
+      if (data && data.length > 0) {
+        const activeCall = data[0] as CallRecord;
+        setCall(activeCall);
+        setScreen("active");
+        if (activeCall.transcript) {
+          const parsed = parseTranscript(activeCall.transcript);
+          setExtracted({
+            service: parsed.service_type,
+            pickup: parsed.pickup_city,
+            dropoff: parsed.dropoff_city,
+            vehicle: parsed.vehicle,
+            urgency: parsed.urgency,
+          });
+        }
+      }
+    }
+
+    checkActiveCall();
+  }, [session]);
+
   // ---- Supabase Realtime: watch for new calls + transcript updates ----
   useEffect(() => {
     const channel = sbClient
