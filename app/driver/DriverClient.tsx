@@ -119,6 +119,7 @@ export default function DriverClient() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const deviceRef = useRef<Device | null>(null);
   const activeCallRef = useRef<TwilioCall | null>(null);
+  const [hasVoipCall, setHasVoipCall] = useState(false);
 
   const estimate = hookupFee + miles * ratePerMile + (nonRunner ? NON_RUNNER_FEE : 0);
 
@@ -218,33 +219,53 @@ export default function DriverClient() {
         });
 
         device.on("incoming", (incomingCall: TwilioCall) => {
-          // Show ringing screen
-          if (!cancelled) {
-            setScreen("ringing");
+          if (cancelled) return;
 
-            // Send browser notification
-            if ("Notification" in window && Notification.permission === "granted") {
-              new Notification("Incoming Call — ACT Dispatch", {
-                body: `Call from ${incomingCall.parameters.From || "Unknown"}`,
-                icon: "/icon-192.svg",
-                tag: "incoming-call",
-                requireInteraction: true,
-              });
-            }
+          // Store the call FIRST, then update screen
+          activeCallRef.current = incomingCall;
+          setHasVoipCall(true);
 
-            activeCallRef.current = incomingCall;
+          // Get caller info from Twilio params
+          const callerFrom = incomingCall.parameters?.From || "Unknown";
 
-            incomingCall.on("disconnect", () => {
-              activeCallRef.current = null;
-              // Don't reset screen — let the result buttons handle it
-            });
+          // Update call record with caller info from Twilio
+          setCall((prev) => prev ? { ...prev, caller_phone: callerFrom } : {
+            id: "",
+            caller_phone: callerFrom,
+            source: null,
+            started_at: new Date().toISOString(),
+            duration_seconds: 0,
+            transcript: null,
+            transcript_chunks: null,
+            disposition: null,
+            notes: null,
+            quoted_price: null,
+          });
 
-            incomingCall.on("cancel", () => {
-              activeCallRef.current = null;
-              setScreen("idle");
-              showToast("Call cancelled by caller");
+          // NOW show ringing screen — ref is guaranteed set
+          setScreen("ringing");
+
+          // Browser notification
+          if ("Notification" in window && Notification.permission === "granted") {
+            new Notification("Incoming Call — ACT Dispatch", {
+              body: `Call from ${callerFrom}`,
+              icon: "/icon-192.svg",
+              tag: "incoming-call",
+              requireInteraction: true,
             });
           }
+
+          incomingCall.on("disconnect", () => {
+            activeCallRef.current = null;
+            setHasVoipCall(false);
+          });
+
+          incomingCall.on("cancel", () => {
+            activeCallRef.current = null;
+            setHasVoipCall(false);
+            setScreen("idle");
+            showToast("Call cancelled by caller");
+          });
         });
 
         device.on("tokenWillExpire", async () => {
@@ -284,7 +305,9 @@ export default function DriverClient() {
         (payload) => {
           const newCall = payload.new as CallRecord;
           if (newCall.disposition === "spam") return;
-          setCall(newCall);
+          // Only update call DATA — don't change screen state.
+          // The ringing screen is triggered by Twilio incoming event only.
+          setCall((prev) => prev && prev.id ? prev : newCall);
           setExtracted({ service: null, pickup: null, dropoff: null, vehicle: null, urgency: null });
           setMiles(0);
           setNonRunner(false);
@@ -488,7 +511,6 @@ export default function DriverClient() {
   // RINGING SCREEN — incoming call, answer or decline
   // =====================================================================
   if (screen === "ringing") {
-    const hasActiveCall = !!activeCallRef.current;
     return (
       <div
         className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-gradient-to-b from-blue-900 to-slate-900"
@@ -504,8 +526,12 @@ export default function DriverClient() {
         <p className="text-slate-400 text-sm mb-3">
           {call?.source || "unknown"} source
         </p>
-        <p className="text-[10px] text-slate-500 mb-8">
-          {hasActiveCall ? "VoIP ready" : "Waiting for connection…"}
+        <p className="text-[10px] mb-8">
+          {hasVoipCall ? (
+            <span className="text-emerald-400">✓ VoIP ready — tap Answer</span>
+          ) : (
+            <span className="text-amber-400">Connecting…</span>
+          )}
         </p>
         <div className="flex gap-12">
           <div className="flex flex-col items-center gap-3">
