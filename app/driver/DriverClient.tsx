@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient, Session } from "@supabase/supabase-js";
-import { Device, Call as TwilioCall } from "@twilio/voice-sdk";
 import { parseTranscript } from "@/lib/transcriptParser";
 import {
   dispatchBooked,
@@ -10,10 +9,10 @@ import {
   dispatchLost,
 } from "@/app/call-center/actions";
 import type { LostReason } from "@/lib/types";
-
+import { useRouter } from "next/navigation";
 
 // ---------------------------------------------------------------------------
-// Supabase (browser-side) — shared instance for realtime + auth
+// Supabase (browser-side)
 // ---------------------------------------------------------------------------
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -43,10 +42,10 @@ type ExtractedInfo = {
   urgency: string | null;
 };
 
-type ScreenState = "idle" | "ringing" | "live" | "result";
+type ScreenState = "idle" | "active" | "result";
 
 // ---------------------------------------------------------------------------
-// Pricing defaults (overridden by driver profile when available)
+// Pricing defaults
 // ---------------------------------------------------------------------------
 const DEFAULT_HOOKUP_FEE = 95;
 const DEFAULT_RATE_PER_MILE = 4;
@@ -72,30 +71,21 @@ async function upsertDriver(session: Session) {
 // ---------------------------------------------------------------------------
 
 export default function DriverClient() {
-  const [session, setSession] = useState<Session | null | undefined>(undefined); // undefined = loading
-  // ---- Auth: check session on mount, redirect if not signed in ----
+  const router = useRouter();
+  const [session, setSession] = useState<Session | null | undefined>(undefined);
+
   useEffect(() => {
     sbClient.auth.getSession().then(({ data: { session: s } }) => {
-      if (!s) {
-        window.location.href = "/driver/login";
-        return;
-      }
+      if (!s) { router.replace("/driver/login"); return; }
       setSession(s);
       upsertDriver(s);
     });
-
-    const {
-      data: { subscription },
-    } = sbClient.auth.onAuthStateChange((_event, s) => {
-      if (!s) {
-        window.location.href = "/driver/login";
-        return;
-      }
+    const { data: { subscription } } = sbClient.auth.onAuthStateChange((_event, s) => {
+      if (!s) { router.replace("/driver/login"); return; }
       setSession(s);
     });
-
     return () => subscription.unsubscribe();
-  }, []);
+  }, [router]);
 
   const [screen, setScreen] = useState<ScreenState>("idle");
   const [call, setCall] = useState<CallRecord | null>(null);
@@ -110,16 +100,11 @@ export default function DriverClient() {
   const [resultDone, setResultDone] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const [deviceReady, setDeviceReady] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState("Connecting…");
 
   const [hookupFee, setHookupFee] = useState(DEFAULT_HOOKUP_FEE);
   const [ratePerMile, setRatePerMile] = useState(DEFAULT_RATE_PER_MILE);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const deviceRef = useRef<Device | null>(null);
-  const activeCallRef = useRef<TwilioCall | null>(null);
-  const [hasVoipCall, setHasVoipCall] = useState(false);
 
   const estimate = hookupFee + miles * ratePerMile + (nonRunner ? NON_RUNNER_FEE : 0);
 
@@ -144,18 +129,15 @@ export default function DriverClient() {
     if (!session) return;
 
     async function setupPush() {
-      // Request notification permission
       if ("Notification" in window && Notification.permission === "default") {
         await Notification.requestPermission();
       }
 
-      // Register service worker
       if ("serviceWorker" in navigator) {
         try {
           const reg = await navigator.serviceWorker.register("/sw.js");
           await navigator.serviceWorker.ready;
 
-          // Subscribe to push
           const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
           if (vapidKey && Notification.permission === "granted") {
             let sub = await reg.pushManager.getSubscription();
@@ -166,7 +148,6 @@ export default function DriverClient() {
               });
             }
 
-            // Send subscription to server
             await fetch("/api/push/subscribe", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -185,117 +166,7 @@ export default function DriverClient() {
     setupPush();
   }, [session]);
 
-  // ---- Initialize Twilio Client Device ----
-  useEffect(() => {
-    if (!session) return;
-    let cancelled = false;
-    const driverIdentity = session.user.id;
-
-    async function initDevice() {
-      try {
-        const res = await fetch(`/api/twilio/token?identity=${encodeURIComponent(driverIdentity)}`);
-        const data = await res.json();
-
-        if (!data.token) {
-          setConnectionStatus("Token error — run /api/twilio/setup");
-          return;
-        }
-
-        const device = new Device(data.token, {
-          logLevel: 1,
-          codecPreferences: [TwilioCall.Codec.Opus, TwilioCall.Codec.PCMU],
-        });
-
-        device.on("registered", () => {
-          if (!cancelled) {
-            setDeviceReady(true);
-            setConnectionStatus("Online — listening");
-          }
-        });
-
-        device.on("error", (err) => {
-          console.error("Twilio Device error:", err);
-          setConnectionStatus("Connection error");
-        });
-
-        device.on("incoming", (incomingCall: TwilioCall) => {
-          if (cancelled) return;
-
-          // Store the call FIRST, then update screen
-          activeCallRef.current = incomingCall;
-          setHasVoipCall(true);
-
-          // Get caller info from Twilio params
-          const callerFrom = incomingCall.parameters?.From || "Unknown";
-
-          // Update call record with caller info from Twilio
-          setCall((prev) => prev ? { ...prev, caller_phone: callerFrom } : {
-            id: "",
-            caller_phone: callerFrom,
-            source: null,
-            started_at: new Date().toISOString(),
-            duration_seconds: 0,
-            transcript: null,
-            transcript_chunks: null,
-            disposition: null,
-            notes: null,
-            quoted_price: null,
-          });
-
-          // NOW show ringing screen — ref is guaranteed set
-          setScreen("ringing");
-
-          // Browser notification
-          if ("Notification" in window && Notification.permission === "granted") {
-            new Notification("Incoming Call — ACT Dispatch", {
-              body: `Call from ${callerFrom}`,
-              icon: "/icon-192.svg",
-              tag: "incoming-call",
-              requireInteraction: true,
-            });
-          }
-
-          incomingCall.on("disconnect", () => {
-            activeCallRef.current = null;
-            setHasVoipCall(false);
-          });
-
-          incomingCall.on("cancel", () => {
-            activeCallRef.current = null;
-            setHasVoipCall(false);
-            setScreen("idle");
-            showToast("Call cancelled by caller");
-          });
-        });
-
-        device.on("tokenWillExpire", async () => {
-          const refreshRes = await fetch(`/api/twilio/token?identity=${encodeURIComponent(driverIdentity)}`);
-          const refreshData = await refreshRes.json();
-          if (refreshData.token) {
-            device.updateToken(refreshData.token);
-          }
-        });
-
-        await device.register();
-        deviceRef.current = device;
-      } catch (err) {
-        console.error("Failed to init Twilio Device:", err);
-        setConnectionStatus("Setup needed");
-      }
-    }
-
-    initDevice();
-
-    return () => {
-      cancelled = true;
-      if (deviceRef.current) {
-        deviceRef.current.destroy();
-        deviceRef.current = null;
-      }
-    };
-  }, [session]);
-
-  // ---- Supabase Realtime: watch for call updates (transcript) ----
+  // ---- Supabase Realtime: watch for new calls + transcript updates ----
   useEffect(() => {
     const channel = sbClient
       .channel("driver-calls")
@@ -305,15 +176,29 @@ export default function DriverClient() {
         (payload) => {
           const newCall = payload.new as CallRecord;
           if (newCall.disposition === "spam") return;
-          // Only update call DATA — don't change screen state.
-          // The ringing screen is triggered by Twilio incoming event only.
-          setCall((prev) => prev && prev.id ? prev : newCall);
+
+          // New call came in — switch to active screen
+          setCall(newCall);
+          setScreen("active");
+          setElapsed(0);
           setExtracted({ service: null, pickup: null, dropoff: null, vehicle: null, urgency: null });
           setMiles(0);
           setNonRunner(false);
           setCustomerName("");
           setNotes("");
           setResultDone(false);
+
+          // Parse transcript if available
+          if (newCall.transcript) {
+            const parsed = parseTranscript(newCall.transcript);
+            setExtracted({
+              service: parsed.service_type,
+              pickup: parsed.pickup_city,
+              dropoff: parsed.dropoff_city,
+              vehicle: parsed.vehicle,
+              urgency: parsed.urgency,
+            });
+          }
         },
       )
       .on(
@@ -321,30 +206,30 @@ export default function DriverClient() {
         { event: "UPDATE", schema: "public", table: "calls" },
         (payload) => {
           const updated = payload.new as CallRecord;
-          if (call && updated.id === call.id) {
-            setCall(updated);
-            if (updated.transcript) {
-              const parsed = parseTranscript(updated.transcript);
-              setExtracted((prev) => ({
-                service: parsed.service_type || prev.service,
-                pickup: parsed.pickup_city || prev.pickup,
-                dropoff: parsed.dropoff_city || prev.dropoff,
-                vehicle: parsed.vehicle || prev.vehicle,
-                urgency: parsed.urgency || prev.urgency,
-              }));
-            }
+          setCall((prev) => {
+            if (!prev || prev.id !== updated.id) return prev;
+            return updated;
+          });
+          if (updated.transcript) {
+            const parsed = parseTranscript(updated.transcript);
+            setExtracted((prev) => ({
+              service: parsed.service_type || prev.service,
+              pickup: parsed.pickup_city || prev.pickup,
+              dropoff: parsed.dropoff_city || prev.dropoff,
+              vehicle: parsed.vehicle || prev.vehicle,
+              urgency: parsed.urgency || prev.urgency,
+            }));
           }
         },
       )
       .subscribe();
 
     return () => { sbClient.removeChannel(channel); };
-  }, [call?.id]);
+  }, []);
 
   // ---- Call duration timer ----
   useEffect(() => {
-    if (screen === "live") {
-      setElapsed(0);
+    if (screen === "active") {
       timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
     } else if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -370,49 +255,9 @@ export default function DriverClient() {
     setTimeout(() => setToast(null), 2500);
   };
 
-  // ---- Answer incoming call ----
-  const handleAnswer = () => {
-    const c = activeCallRef.current;
-    if (c) {
-      try {
-        c.accept();
-        setScreen("live");
-        showToast("Connected");
-      } catch (err) {
-        showToast("Answer failed: " + String(err));
-      }
-    } else {
-      showToast("No active call to answer");
-    }
-  };
-
-  // ---- Decline incoming call ----
-  const handleDecline = () => {
-    const c = activeCallRef.current;
-    if (c) {
-      try {
-        c.reject();
-      } catch {
-        c.disconnect();
-      }
-      activeCallRef.current = null;
-    }
-    setScreen("idle");
-    showToast("Call declined");
-  };
-
-  // ---- Hang up ----
-  const handleHangup = () => {
-    if (activeCallRef.current) {
-      activeCallRef.current.disconnect();
-      activeCallRef.current = null;
-    }
-  };
-
   // ---- Disposition handlers ----
   const handleBooked = useCallback(async () => {
     if (!call) return;
-    handleHangup();
     setScreen("result");
     await dispatchBooked(call.id, {
       customer: customerName || null,
@@ -431,7 +276,6 @@ export default function DriverClient() {
 
   const handleStandby = useCallback(async () => {
     if (!call || !call.caller_phone) return;
-    handleHangup();
     setScreen("result");
     await dispatchStandby(call.id, {
       customer: customerName || null,
@@ -451,7 +295,6 @@ export default function DriverClient() {
 
   const handleLost = useCallback(async () => {
     if (!call) return;
-    handleHangup();
     setScreen("result");
     await dispatchLost(call.id, "Shopping around" as LostReason, estimate);
     showToast("Call lost");
@@ -466,95 +309,49 @@ export default function DriverClient() {
     `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
   // =====================================================================
-  // AUTH GUARD — show spinner while checking, block render if no session
+  // AUTH LOADING
   // =====================================================================
-  if (!session) {
+  if (session === undefined) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      <div className="fixed inset-0 flex items-center justify-center bg-slate-900">
+        <div className="text-slate-400 text-sm">Loading…</div>
       </div>
     );
   }
 
   // =====================================================================
-  // IDLE SCREEN
+  // IDLE SCREEN — waiting for calls
   // =====================================================================
   if (screen === "idle") {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6">
+      <div className="fixed inset-0 flex flex-col items-center justify-center p-6 bg-slate-900">
         <div className="w-20 h-20 rounded-full bg-blue-600 flex items-center justify-center mb-6">
           <span className="text-3xl">🎧</span>
         </div>
         <h1 className="text-2xl font-bold mb-2">ACT Dispatch</h1>
-        <p className="text-slate-400 text-sm mb-8">Waiting for incoming calls…</p>
+        <p className="text-slate-400 text-sm mb-2">
+          {session?.user?.user_metadata?.full_name || "Driver"}
+        </p>
+        <p className="text-slate-500 text-xs mb-8">
+          Open this app during a call to see live info
+        </p>
         <div className="flex items-center gap-2">
-          {deviceReady ? (
-            <>
-              <span className="relative flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-              </span>
-              <span className="text-sm text-emerald-400 font-medium">{connectionStatus}</span>
-            </>
-          ) : (
-            <>
-              <span className="w-3 h-3 rounded-full bg-amber-500 animate-pulse"></span>
-              <span className="text-sm text-amber-400 font-medium">{connectionStatus}</span>
-            </>
-          )}
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+          </span>
+          <span className="text-sm text-emerald-400 font-medium">Online — listening</span>
         </div>
-      </div>
-    );
-  }
 
-  // =====================================================================
-  // RINGING SCREEN — incoming call, answer or decline
-  // =====================================================================
-  if (screen === "ringing") {
-    return (
-      <div
-        className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-gradient-to-b from-blue-900 to-slate-900"
-        style={{ touchAction: "none", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" }}
-      >
-        <div className="w-24 h-24 rounded-full bg-blue-500 flex items-center justify-center mb-6 animate-pulse">
-          <span className="text-4xl">📞</span>
-        </div>
-        <h1 className="text-2xl font-bold mb-2">Incoming Call</h1>
-        <p className="text-blue-300 text-lg tabular-nums font-bold mb-2">
-          {call?.caller_phone || "Unknown"}
-        </p>
-        <p className="text-slate-400 text-sm mb-3">
-          {call?.source || "unknown"} source
-        </p>
-        <p className="text-[10px] mb-8">
-          {hasVoipCall ? (
-            <span className="text-emerald-400">✓ VoIP ready — tap Answer</span>
-          ) : (
-            <span className="text-amber-400">Connecting…</span>
-          )}
-        </p>
-        <div className="flex gap-12">
-          <div className="flex flex-col items-center gap-3">
-            <div
-              role="button"
-              tabIndex={0}
-              onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); handleDecline(); }}
-              className="w-24 h-24 rounded-full bg-rose-600 active:bg-rose-500 flex items-center justify-center text-4xl shadow-lg shadow-rose-600/30 cursor-pointer select-none"
-            >
-              ✕
-            </div>
-            <span className="text-sm text-rose-400 font-semibold">Decline</span>
+        {/* Quick stats */}
+        <div className="mt-12 w-full max-w-xs space-y-2">
+          <div className="bg-slate-800 rounded-xl p-3 flex items-center justify-between">
+            <span className="text-xs text-slate-500">Hookup fee</span>
+            <span className="text-sm font-bold tabular-nums">${hookupFee}</span>
           </div>
-          <div className="flex flex-col items-center gap-3">
-            <div
-              role="button"
-              tabIndex={0}
-              onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); handleAnswer(); }}
-              className="w-24 h-24 rounded-full bg-emerald-600 active:bg-emerald-500 flex items-center justify-center text-4xl shadow-lg shadow-emerald-600/30 animate-bounce cursor-pointer select-none"
-            >
-              ✓
-            </div>
-            <span className="text-sm text-emerald-400 font-semibold">Answer</span>
+          <div className="bg-slate-800 rounded-xl p-3 flex items-center justify-between">
+            <span className="text-xs text-slate-500">Per mile</span>
+            <span className="text-sm font-bold tabular-nums">${ratePerMile}/mi</span>
           </div>
         </div>
       </div>
@@ -562,23 +359,24 @@ export default function DriverClient() {
   }
 
   // =====================================================================
-  // RESULT SCREEN
+  // RESULT SCREEN — 10 second post-call
   // =====================================================================
   if (screen === "result") {
+    const disp = call?.disposition;
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6">
+      <div className="fixed inset-0 flex flex-col items-center justify-center p-6 bg-slate-900">
         <div className="text-6xl mb-6">
-          {call?.disposition === "booked" ? "✅" : call?.disposition === "standby" ? "📤" : "❌"}
+          {disp === "booked" ? "✅" : disp === "standby" ? "📤" : "❌"}
         </div>
         <h1 className="text-2xl font-bold mb-2">
-          {call?.disposition === "booked" ? "Job Booked!" : call?.disposition === "standby" ? "Proposal Sent" : "Call Lost"}
+          {disp === "booked" ? "Job Booked!" : disp === "standby" ? "Proposal Sent" : "Call Lost"}
         </h1>
-        {call?.disposition === "booked" && (
+        {disp === "booked" && (
           <p className="text-emerald-400 text-lg font-bold mb-4">${estimate}</p>
         )}
-        {call?.disposition === "standby" && (
+        {disp === "standby" && (
           <p className="text-amber-400 text-sm mb-4 text-center max-w-xs">
-            Customer will receive a text with your quote and an accept button.
+            Customer will receive a text with your quote and accept button.
           </p>
         )}
         {!resultDone ? (
@@ -589,7 +387,7 @@ export default function DriverClient() {
         ) : (
           <button
             onClick={handleReset}
-            className="mt-8 px-8 py-4 rounded-2xl bg-blue-600 text-white text-lg font-bold"
+            className="mt-8 px-8 py-4 rounded-2xl bg-blue-600 text-white text-lg font-bold active:scale-95"
           >
             Ready for Next Call
           </button>
@@ -599,12 +397,12 @@ export default function DriverClient() {
   }
 
   // =====================================================================
-  // LIVE CALL SCREEN
+  // ACTIVE CALL SCREEN — live CRM data overlay
   // =====================================================================
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="fixed inset-0 flex flex-col bg-slate-900 overflow-y-auto overscroll-none">
       {/* Header */}
-      <div className="bg-blue-600 px-4 py-3 flex items-center justify-between">
+      <div className="bg-blue-600 px-4 py-3 flex items-center justify-between shrink-0">
         <div>
           <div className="flex items-center gap-2">
             <span className="relative flex h-2 w-2">
@@ -616,33 +414,32 @@ export default function DriverClient() {
           <div className="text-xl font-bold tabular-nums mt-0.5">{call?.caller_phone || "Unknown"}</div>
           <div className="text-xs opacity-70">{call?.source || "unknown"} source</div>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="text-right">
-            <div className="text-3xl font-bold tabular-nums">{formatTime(elapsed)}</div>
-          </div>
-          <button
-            onClick={handleHangup}
-            className="w-12 h-12 rounded-full bg-rose-600 hover:bg-rose-500 flex items-center justify-center text-xl active:scale-95"
-            title="Hang up"
-          >
-            ✕
-          </button>
+        <div className="text-right">
+          <div className="text-3xl font-bold tabular-nums">{formatTime(elapsed)}</div>
         </div>
       </div>
 
       {/* Transcript */}
-      <div className="bg-slate-800 px-4 py-3 border-b border-slate-700">
+      <div className="bg-slate-800 px-4 py-3 border-b border-slate-700 shrink-0">
         <div className="flex items-center justify-between mb-2">
           <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Live Transcript</span>
-          <span className="text-[10px] text-blue-400 font-medium">{call?.transcript_chunks?.length || 0} lines</span>
+          <span className="text-[10px] text-blue-400 font-medium">
+            {call?.transcript_chunks?.length || 0} lines
+          </span>
         </div>
         <div className="max-h-32 overflow-y-auto space-y-1.5 text-sm">
           {(!call?.transcript_chunks || call.transcript_chunks.length === 0) ? (
-            <div className="text-slate-500 text-xs italic">Transcript will appear here…</div>
+            <div className="text-slate-500 text-xs italic">
+              {call?.transcript
+                ? call.transcript.slice(0, 200)
+                : "Transcript will appear as you talk…"}
+            </div>
           ) : (
             call.transcript_chunks.map((chunk, i) => (
               <div key={i} className="flex gap-2">
-                <span className={`text-[10px] font-bold uppercase w-[60px] shrink-0 ${chunk.speaker === "caller" ? "text-slate-400" : "text-blue-400"}`}>
+                <span className={`text-[10px] font-bold uppercase w-[60px] shrink-0 ${
+                  chunk.speaker === "caller" ? "text-slate-400" : "text-blue-400"
+                }`}>
                   {chunk.speaker === "caller" ? "Caller" : "You"}
                 </span>
                 <span className="text-slate-200">{chunk.text}</span>
@@ -652,8 +449,8 @@ export default function DriverClient() {
         </div>
       </div>
 
-      {/* Extracted info */}
-      <div className="bg-slate-800/50 px-4 py-3 border-b border-slate-700">
+      {/* Auto-detected info */}
+      <div className="bg-slate-800/50 px-4 py-3 border-b border-slate-700 shrink-0">
         <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-2">Auto-Detected</div>
         <div className="grid grid-cols-2 gap-2 text-xs">
           <InfoChip label="Service" value={extracted.service} />
@@ -664,7 +461,7 @@ export default function DriverClient() {
       </div>
 
       {/* Customer name */}
-      <div className="px-4 py-3 border-b border-slate-700">
+      <div className="px-4 py-3 border-b border-slate-700 shrink-0">
         <input
           type="text"
           placeholder="Customer name…"
@@ -675,15 +472,17 @@ export default function DriverClient() {
       </div>
 
       {/* Quote calculator */}
-      <div className="px-4 py-4 border-b border-slate-700">
+      <div className="px-4 py-4 border-b border-slate-700 shrink-0">
         <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-3">Quote</div>
         <div className="grid grid-cols-2 gap-3 mb-3">
           <div>
             <label className="text-[10px] text-slate-500 uppercase mb-1 block">Miles</label>
             <input
               type="number"
-              value={miles}
+              inputMode="decimal"
+              value={miles || ""}
               onChange={(e) => setMiles(Number(e.target.value) || 0)}
+              placeholder="0"
               className="w-full px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-600 text-white text-lg font-bold tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -691,7 +490,11 @@ export default function DriverClient() {
             <label className="text-[10px] text-slate-500 uppercase mb-1 block">Non-runner</label>
             <button
               onClick={() => setNonRunner(!nonRunner)}
-              className={`w-full px-3 py-2.5 rounded-xl text-sm font-bold transition-colors ${nonRunner ? "bg-amber-500 text-white border border-amber-400" : "bg-slate-800 text-slate-400 border border-slate-600"}`}
+              className={`w-full px-3 py-2.5 rounded-xl text-sm font-bold transition-colors ${
+                nonRunner
+                  ? "bg-amber-500 text-white border border-amber-400"
+                  : "bg-slate-800 text-slate-400 border border-slate-600"
+              }`}
             >
               {nonRunner ? "YES +$30" : "NO"}
             </button>
@@ -706,13 +509,15 @@ export default function DriverClient() {
           </div>
           <div className="text-right">
             <div className="text-[10px] text-slate-500 uppercase">ETA</div>
-            <div className="text-2xl font-bold tabular-nums">{miles > 0 ? `${Math.round(miles * 2.5)}m` : "—"}</div>
+            <div className="text-2xl font-bold tabular-nums">
+              {miles > 0 ? `${Math.round(miles * 2.5)}m` : "—"}
+            </div>
           </div>
         </div>
       </div>
 
       {/* Notes */}
-      <div className="px-4 py-3 border-b border-slate-700">
+      <div className="px-4 py-3 border-b border-slate-700 shrink-0">
         <textarea
           rows={2}
           value={notes}
@@ -722,16 +527,25 @@ export default function DriverClient() {
         />
       </div>
 
-      {/* 3 Action Buttons */}
-      <div className="p-4 mt-auto">
+      {/* 3 ACTION BUTTONS */}
+      <div className="p-4 mt-auto shrink-0">
         <div className="grid grid-cols-3 gap-3">
-          <button onClick={handleBooked} className="py-5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-center font-bold text-lg transition-colors active:scale-95">
+          <button
+            onClick={handleBooked}
+            className="py-5 rounded-2xl bg-emerald-600 active:bg-emerald-500 text-white text-center font-bold text-lg active:scale-95 transition-transform"
+          >
             <div className="text-2xl mb-1">✓</div>Booked
           </button>
-          <button onClick={handleStandby} className="py-5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-white text-center font-bold text-lg transition-colors active:scale-95">
+          <button
+            onClick={handleStandby}
+            className="py-5 rounded-2xl bg-amber-500 active:bg-amber-400 text-white text-center font-bold text-lg active:scale-95 transition-transform"
+          >
             <div className="text-2xl mb-1">⏳</div>Standby
           </button>
-          <button onClick={handleLost} className="py-5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white text-center font-bold text-lg transition-colors active:scale-95">
+          <button
+            onClick={handleLost}
+            className="py-5 rounded-2xl bg-rose-600 active:bg-rose-500 text-white text-center font-bold text-lg active:scale-95 transition-transform"
+          >
             <div className="text-2xl mb-1">✕</div>Lost
           </button>
         </div>
