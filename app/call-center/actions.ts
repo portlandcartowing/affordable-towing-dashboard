@@ -162,12 +162,25 @@ export async function dispatchStandby(callId: string, fields: {
     ? `https://${process.env.VERCEL_URL}`
     : "http://localhost:3000";
   const proposalUrl = `${baseUrl}/proposal/${proposal.token}`;
+  const smsBody = `Portland Car Towing — Your quote: $${fields.quoted_price ?? "TBD"}. ETA: ${fields.eta_min ?? "~"}–${fields.eta_max ?? "~"} min. View & accept: ${proposalUrl}`;
 
   try {
-    await getTwilioClient().messages.create({
+    const msg = await getTwilioClient().messages.create({
       to: fields.phone,
       from: twilioNumber,
-      body: `Portland Car Towing — Your quote: $${fields.quoted_price ?? "TBD"}. ETA: ${fields.eta_min ?? "~"}–${fields.eta_max ?? "~"} min. View & accept: ${proposalUrl}`,
+      body: smsBody,
+    });
+
+    // Log to messages table
+    await supabase.from("messages").insert({
+      direction: "outbound",
+      from_number: twilioNumber,
+      to_number: fields.phone,
+      body: smsBody,
+      call_id: callId,
+      lead_id: lead.id,
+      twilio_sid: msg.sid,
+      status: "sent",
     });
 
     // Mark proposal as sent
@@ -239,12 +252,24 @@ export async function sendConfirmationText(
   price: number | null,
 ) {
   const name = customerName?.split(" ")[0] ?? "there";
+  const smsBody = `Hi ${name}! Portland Car Towing confirming your job. ${price != null ? `Total: $${price}. ` : ""}A driver is on the way. Reply STOP to opt out.`;
   try {
-    await getTwilioClient().messages.create({
+    const msg = await getTwilioClient().messages.create({
       to: phone,
       from: twilioNumber,
-      body: `Hi ${name}! Portland Car Towing confirming your job. ${price != null ? `Total: $${price}. ` : ""}A driver is on the way. Reply STOP to opt out.`,
+      body: smsBody,
     });
+
+    // Log to messages table
+    await supabase.from("messages").insert({
+      direction: "outbound",
+      from_number: twilioNumber,
+      to_number: phone,
+      body: smsBody,
+      twilio_sid: msg.sid,
+      status: "sent",
+    });
+
     return { ok: true };
   } catch (err) {
     return { ok: false, error: String(err) };

@@ -34,9 +34,62 @@ export async function createLead(input: LeadInput) {
 }
 
 export async function toggleLeadBooked(id: string, booked: boolean) {
-  const { error } = await supabase.from("leads").update({ booked }).eq("id", id);
+  return updateLeadStatus(id, booked ? "booked" : "new_lead");
+}
+
+/**
+ * Update a lead's status and sync across calls + jobs.
+ * Uses the same status values as call dispositions so everything matches.
+ */
+export async function updateLeadStatus(leadId: string, status: string) {
+  const booked = status === "booked";
+  const disposition = status === "new_lead" ? null : status;
+
+  // Update lead
+  const { error } = await supabase
+    .from("leads")
+    .update({ booked })
+    .eq("id", leadId);
   if (error) return { ok: false, error: error.message };
+
+  // Sync linked call
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("call_id")
+    .eq("id", leadId)
+    .single();
+
+  if (lead?.call_id) {
+    await supabase
+      .from("calls")
+      .update({
+        disposition,
+        converted_to_job: booked,
+      })
+      .eq("id", lead.call_id);
+  }
+
+  // Sync linked job — map status to job pipeline stage
+  const jobStatusMap: Record<string, string> = {
+    booked: "booked",
+    standby: "quoted",
+    callback: "quoted",
+    lost: "cancelled",
+    spam: "cancelled",
+    new_lead: "new_lead",
+  };
+  const newJobStatus = jobStatusMap[status];
+  if (newJobStatus) {
+    await supabase
+      .from("jobs")
+      .update({ status: newJobStatus })
+      .eq("lead_id", leadId);
+  }
+
   revalidatePath("/leads");
+  revalidatePath("/calls");
+  revalidatePath("/call-center");
+  revalidatePath("/jobs");
   revalidatePath("/dashboard");
   return { ok: true };
 }

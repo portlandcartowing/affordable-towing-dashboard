@@ -108,12 +108,48 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({ caller_phone: callerPhone, source }),
     }).catch(() => {});
 
-    // TwiML: record + forward to driver's phone
+    // Check if the call is an outbound VoIP call from a driver client
+    const fromClient = body.get("Direction") === "outbound" || (body.get("From") as string)?.startsWith("client:");
+    const toNumber = body.get("To") as string;
+
+    if (fromClient && toNumber && !toNumber.startsWith("client:")) {
+      // Driver is placing an outbound call via VoIP → dial the customer
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial callerId="${process.env.TWILIO_PHONE_NUMBER}"
+        record="record-from-answer-dual"
+        recordingStatusCallback="${statusCallback}"
+        recordingStatusCallbackMethod="POST">
+    <Number>${toNumber}</Number>
+  </Dial>
+</Response>`;
+      return new NextResponse(twiml, {
+        headers: { "Content-Type": "text/xml" },
+      });
+    }
+
+    // Inbound call: try VoIP client first, fall back to phone after 15s
+    // Look up which driver should receive this call
+    const { data: availableDriver } = await supabase
+      .from("drivers")
+      .select("id, email, name")
+      .eq("status", "available")
+      .limit(1)
+      .single();
+
+    // Build the driver's VoIP identity (email-based, sanitized)
+    const driverIdentity = availableDriver?.email
+      ? availableDriver.email.replace(/[^a-zA-Z0-9]/g, "_")
+      : null;
+
+    // TwiML: record + try VoIP client, fall back to phone
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial record="record-from-answer-dual"
         recordingStatusCallback="${statusCallback}"
-        recordingStatusCallbackMethod="POST">
+        recordingStatusCallbackMethod="POST"
+        timeout="15">
+    ${driverIdentity ? `<Client>${driverIdentity}</Client>` : ""}
     <Number>${forwardTo}</Number>
   </Dial>
 </Response>`;

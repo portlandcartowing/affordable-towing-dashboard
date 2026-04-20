@@ -5,6 +5,7 @@ import CallsTable from "@/components/calls/CallsTable";
 import { getCalls, summarizeCalls } from "@/lib/callTracking";
 import { getLeadIdsWithJobs } from "@/lib/jobsQueries";
 import { startOfToday, startOfWeek } from "@/lib/queries";
+import { supabase } from "@/lib/supabase";
 
 export const revalidate = 15;
 
@@ -13,6 +14,21 @@ export default async function CallsPage() {
     getCalls(100),
     getLeadIdsWithJobs(),
   ]);
+
+  // Fetch customer names for linked leads
+  const leadIds = calls.map(c => c.lead_id).filter(Boolean) as string[];
+  let leadNames: Record<string, string> = {};
+  if (leadIds.length > 0) {
+    const { data } = await supabase
+      .from("leads")
+      .select("id, customer")
+      .in("id", leadIds);
+    if (data) {
+      leadNames = Object.fromEntries(
+        data.map(l => [l.id, l.customer || ""])
+      );
+    }
+  }
   const summary = summarizeCalls(calls, startOfToday(), startOfWeek());
   const conversionRate =
     summary.today > 0 ? Math.round((summary.convertedToday / summary.today) * 100) : 0;
@@ -47,7 +63,7 @@ export default async function CallsPage() {
               subtitle={`${calls.length} tracked ${calls.length === 1 ? "call" : "calls"}`}
             />
           </div>
-          <CallsTable calls={calls} leadIdsWithJobs={[...leadIdsWithJobs]} />
+          <CallsTable calls={calls} leadIdsWithJobs={[...leadIdsWithJobs]} leadNames={leadNames} />
         </section>
       </main>
     </>

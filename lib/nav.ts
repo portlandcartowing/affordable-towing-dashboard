@@ -17,5 +17,7 @@ export const NAV_LINKS: NavLink[] = [
   { href: "/jobs",        label: "Jobs",         icon: "✦", mobile: true },
   { href: "/dispatch",    label: "Dispatch",     icon: "➤" },
   { href: "/marketing",   label: "Marketing",    icon: "◈" },
+  { href: "/drivers",     label: "Drivers",      icon: "👤" },
+  { href: "/disputes",    label: "Disputes",     icon: "⚡" },
   { href: "/settings",    label: "Settings",     icon: "✿" },
 ];

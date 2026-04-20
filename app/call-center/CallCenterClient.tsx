@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import QueuePanel from "./components/QueuePanel";
 import TranscriptPanel from "./components/TranscriptPanel";
+import MessagesPanel from "./components/MessagesPanel";
 import CopilotPanel from "./components/CopilotPanel";
 import ExtractedFieldsPanel from "./components/ExtractedFieldsPanel";
 import QuoteHelper, { type QuoteHelperState } from "./components/QuoteHelper";
@@ -123,6 +124,17 @@ export default function CallCenterClient({ initialCalls }: Props) {
               },
             };
           });
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        (payload) => {
+          const msg = payload.new as { from_number: string; body: string };
+          // Show toast for incoming texts
+          if (msg.from_number && msg.body) {
+            showToast(`SMS from ${msg.from_number}: ${msg.body.slice(0, 50)}`);
+          }
         },
       )
       .subscribe();
@@ -352,10 +364,16 @@ export default function CallCenterClient({ initialCalls }: Props) {
         <ActiveCallHeader call={selected} />
 
         <div className="flex-1 grid grid-cols-1 gap-3 p-3">
-          <TranscriptPanel
-            chunks={selected.transcript}
-            status={selected.status}
-          />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 min-h-[300px]">
+            <TranscriptPanel
+              chunks={selected.transcript}
+              status={selected.status}
+            />
+            <MessagesPanel
+              callerPhone={selected.caller_phone}
+              callId={selected.id}
+            />
+          </div>
 
           {(selected.status === "booked" || selected.status === "completed") && (
             <>

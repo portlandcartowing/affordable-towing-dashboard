@@ -1,11 +1,14 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import React, { useState, useMemo, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import EmptyState from "@/components/dashboard/EmptyState";
 import CreateLeadButton from "./CreateLeadButton";
 import DeleteCallButton from "./DeleteCallButton";
 import BulkDeleteButton from "./BulkDeleteButton";
+import { updateCallDisposition } from "@/app/calls/actions";
 import type { Call, CallDisposition } from "@/lib/types";
+import { CALL_DISPOSITIONS } from "@/lib/types";
 
 function formatTime(iso: string | null) {
   if (!iso) return "—";
@@ -68,15 +71,68 @@ function sortCalls(calls: Call[], key: SortKey, dir: SortDir): Call[] {
 }
 
 // ---------------------------------------------------------------------------
+// Disposition changer dropdown
+// ---------------------------------------------------------------------------
+function DispositionChanger({ call, onChanged }: { call: Call; onChanged?: () => void }) {
+  const [localValue, setLocalValue] = useState<string>(call.disposition || "");
+  const [isPending, startTransition] = useTransition();
+  const [toast, setToast] = useState<string | null>(null);
+
+  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    const newDisp = val === "" ? null : (val as CallDisposition);
+    if (val === localValue) return;
+
+    setLocalValue(val);
+
+    startTransition(async () => {
+      const result = await updateCallDisposition(call.id, newDisp);
+      if (result.ok) {
+        setToast(`Changed to ${newDisp || "none"}`);
+        setTimeout(() => setToast(null), 2000);
+        onChanged?.();
+      } else {
+        setLocalValue(call.disposition || "");
+        setToast("Failed to update");
+        setTimeout(() => setToast(null), 2000);
+      }
+    });
+  };
+
+  return (
+    <div className="relative" onClick={(e) => e.stopPropagation()}>
+      <select
+        value={localValue}
+        onChange={handleChange}
+        disabled={isPending}
+        className="text-sm font-medium rounded-lg px-2 py-1.5 ring-1 ring-slate-200 bg-white hover:ring-blue-300 focus:ring-blue-400 focus:outline-none disabled:opacity-50 cursor-pointer"
+      >
+        <option value="">— None —</option>
+        {CALL_DISPOSITIONS.map((d) => (
+          <option key={d} value={d}>
+            {d.charAt(0).toUpperCase() + d.slice(1)}
+          </option>
+        ))}
+      </select>
+      {toast && (
+        <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2 text-xs text-emerald-600 font-medium whitespace-nowrap">
+          {toast}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // CallDetail — expanded panel
 // ---------------------------------------------------------------------------
-function CallDetail({ call }: { call: Call }) {
+function CallDetail({ call, onDispositionChanged }: { call: Call; onDispositionChanged?: () => void }) {
   return (
     <div className="px-5 py-4 bg-slate-50/60 space-y-4 text-sm border-t border-slate-100">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div>
-          <div className="text-[11px] uppercase text-slate-400 font-medium">Disposition</div>
-          <div className="mt-0.5"><DispositionBadge d={call.disposition} /></div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium mb-1">Disposition</div>
+          <DispositionChanger call={call} onChanged={onDispositionChanged} />
         </div>
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium">Quoted Price</div>
@@ -131,15 +187,23 @@ function CallDetail({ call }: { call: Call }) {
 export default function CallsTable({
   calls,
   leadIdsWithJobs: leadIdsArr,
+  leadNames = {},
 }: {
   calls: Call[];
   leadIdsWithJobs: string[];
+  leadNames?: Record<string, string>;
 }) {
+  const router = useRouter();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<SortKey>("time");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const leadIdsWithJobs = new Set(leadIdsArr);
+
+  const handleDispositionChanged = () => {
+    // Force re-fetch so all linked data (leads, jobs) syncs
+    router.refresh();
+  };
 
   const sorted = useMemo(() => sortCalls(calls, sortKey, sortDir), [calls, sortKey, sortDir]);
 
@@ -202,9 +266,14 @@ export default function CallsTable({
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <span className="font-semibold text-blue-600 truncate block">{call.caller_phone || "Unknown"}</span>
+                      {call.lead_id && leadNames[call.lead_id] && (
+                        <div className="text-xs text-slate-900 font-medium truncate">{leadNames[call.lead_id]}</div>
+                      )}
                       <div className="text-[11px] text-slate-400 mt-0.5">{formatTime(call.started_at || call.created_at)}</div>
                     </div>
-                    <DispositionBadge d={call.disposition} />
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <DispositionChanger call={call} onChanged={handleDispositionChanged} />
+                    </div>
                   </div>
                   <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                     <div><span className="text-slate-400">Source: </span><span className="text-slate-700">{call.source || "—"}</span></div>
@@ -217,7 +286,7 @@ export default function CallsTable({
               </div>
               {isOpen && (
                 <>
-                  <CallDetail call={call} />
+                  <CallDetail call={call} onDispositionChanged={handleDispositionChanged} />
                   <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between">
                     <DeleteCallButton callId={call.id} />
                     <LinkStatus call={call} leadHasJob={leadHasJob} />
@@ -232,17 +301,7 @@ export default function CallsTable({
       {/* Desktop table */}
       <div className="hidden md:block bg-white rounded-2xl ring-1 ring-slate-200/70 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm table-fixed">
-            <colgroup>
-              <col className="w-10" />
-              <col className="w-[140px]" />
-              <col className="w-[130px]" />
-              <col className="w-[100px]" />
-              <col className="w-[80px]" />
-              <col className="w-[100px]" />
-              <col />
-              <col className="w-[160px]" />
-            </colgroup>
+          <table className="w-full text-sm" style={{ minWidth: "900px" }}>
             <thead className="bg-slate-50 text-slate-500 text-[11px] uppercase tracking-wide">
               <tr>
                 <th className="px-3 py-2.5">
@@ -250,6 +309,7 @@ export default function CallsTable({
                 </th>
                 <th className="text-left px-3 py-2.5 cursor-pointer select-none" onClick={() => toggleSort("time")}>Date / Time {sortArrow("time")}</th>
                 <th className="text-left px-3 py-2.5 cursor-pointer select-none" onClick={() => toggleSort("caller")}>Caller {sortArrow("caller")}</th>
+                <th className="text-left px-3 py-2.5">Customer</th>
                 <th className="text-left px-3 py-2.5 cursor-pointer select-none" onClick={() => toggleSort("source")}>Source {sortArrow("source")}</th>
                 <th className="text-left px-3 py-2.5 cursor-pointer select-none" onClick={() => toggleSort("duration")}>Dur. {sortArrow("duration")}</th>
                 <th className="text-left px-3 py-2.5 cursor-pointer select-none" onClick={() => toggleSort("disposition")}>Status {sortArrow("disposition")}</th>
@@ -263,9 +323,8 @@ export default function CallsTable({
                 const isOpen = expandedId === call.id;
                 const isSelected = selected.has(call.id);
                 return (
-                  <>
+                  <React.Fragment key={call.id}>
                     <tr
-                      key={call.id}
                       className={`border-t border-slate-100 cursor-pointer transition-colors ${isOpen ? "bg-blue-50/40" : isSelected ? "bg-blue-50/20" : "hover:bg-slate-50/50"}`}
                     >
                       <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
@@ -273,9 +332,10 @@ export default function CallsTable({
                       </td>
                       <td className="px-3 py-2.5 text-slate-500 text-xs whitespace-nowrap" onClick={() => toggle(call.id)}>{formatTime(call.started_at || call.created_at)}</td>
                       <td className="px-3 py-2.5 font-medium text-xs whitespace-nowrap" onClick={() => toggle(call.id)}><span className="text-blue-600">{call.caller_phone || "—"}</span></td>
+                      <td className="px-3 py-2.5 text-slate-900 text-xs" onClick={() => toggle(call.id)}>{(call.lead_id && leadNames[call.lead_id]) || "—"}</td>
                       <td className="px-3 py-2.5" onClick={() => toggle(call.id)}><span className="px-2 py-0.5 text-[10px] rounded-full bg-blue-50 text-blue-700 font-medium">{call.source || "?"}</span></td>
                       <td className="px-3 py-2.5 text-slate-600 text-xs whitespace-nowrap tabular-nums" onClick={() => toggle(call.id)}>{formatDuration(call.duration_seconds)}</td>
-                      <td className="px-3 py-2.5" onClick={() => toggle(call.id)}><DispositionBadge d={call.disposition} /></td>
+                      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}><DispositionChanger call={call} onChanged={handleDispositionChanged} /></td>
                       <td className="px-3 py-2.5 text-slate-500 text-xs truncate" onClick={() => toggle(call.id)}>{truncate(call.transcript, 40)}</td>
                       <td className="px-3 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-2">
@@ -285,9 +345,9 @@ export default function CallsTable({
                       </td>
                     </tr>
                     {isOpen && (
-                      <tr key={`${call.id}-detail`}><td colSpan={8} className="p-0"><CallDetail call={call} /></td></tr>
+                      <tr key={`${call.id}-detail`}><td colSpan={9} className="p-0" onClick={(e) => e.stopPropagation()}><CallDetail call={call} onDispositionChanged={handleDispositionChanged} /></td></tr>
                     )}
-                  </>
+                  </React.Fragment>
                 );
               })}
             </tbody>

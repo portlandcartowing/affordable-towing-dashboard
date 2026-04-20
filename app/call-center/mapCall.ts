@@ -44,11 +44,11 @@ function parseTranscriptChunks(call: Call): TranscriptChunk[] {
   // Fall back to plain text transcript — split by line
   if (call.transcript) {
     return call.transcript.split("\n").filter(Boolean).map((line, i) => {
-      const isCallerLine = line.startsWith("Caller:");
+      const isCallerLine = /^(Caller|Customer):/i.test(line);
       return {
         id: `line-${i}`,
         speaker: isCallerLine ? "caller" as const : "dispatcher" as const,
-        text: line.replace(/^(Caller|Dispatcher):\s*/, ""),
+        text: line.replace(/^(Caller|Customer|Dispatcher):\s*/i, ""),
         at: call.started_at || call.created_at,
       };
     });

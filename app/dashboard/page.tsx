@@ -53,7 +53,8 @@ export default async function DashboardPage() {
   const todayLeads = summarizeLeads(todayLeadsRows);
   const weekLeadsSummary = summarizeLeads(weekLeads);
   const callsSummary = summarizeCalls(calls, todayStartIso, weekStartIso);
-  const todayAdRows = adSpendRows.filter((r) => r.date === new Date().toISOString().slice(0, 10));
+  const todayDateStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date());
+  const todayAdRows = adSpendRows.filter((r) => r.date === todayDateStr);
   const adSpendToday = sumAdSpend(todayAdRows);
   const adSpendWeek = sumAdSpend(adSpendRows);
   const campaigns = summarizeCampaigns(adSpendRows);

@@ -14,6 +14,21 @@ export default async function LeadsPage() {
 
   const leads: Lead[] = data ?? [];
 
+  // Fetch call dispositions for linked leads so the status dropdown shows the right value
+  const callIds = leads.map(l => l.call_id).filter(Boolean) as string[];
+  let callDispositions: Record<string, string> = {};
+  if (callIds.length > 0) {
+    const { data: calls } = await supabase
+      .from("calls")
+      .select("id, disposition")
+      .in("id", callIds);
+    if (calls) {
+      callDispositions = Object.fromEntries(
+        calls.filter(c => c.disposition).map(c => [c.id, c.disposition])
+      );
+    }
+  }
+
   return (
     <>
       <Topbar title="Leads" />
@@ -36,7 +51,7 @@ export default async function LeadsPage() {
           </div>
         )}
 
-        <LeadsTable leads={leads} leadIdsWithJobs={[...leadIdsWithJobs]} />
+        <LeadsTable leads={leads} leadIdsWithJobs={[...leadIdsWithJobs]} callDispositions={callDispositions} />
       </main>
     </>
   );

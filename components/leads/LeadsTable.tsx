@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import BookedToggle from "./BookedToggle";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import CreateJobButton from "./CreateJobButton";
 import DeleteLeadButton from "./DeleteLeadButton";
 import EmptyState from "@/components/dashboard/EmptyState";
+import { updateLeadStatus } from "@/app/leads/actions";
 import type { Lead } from "@/lib/types";
 
 export type { Lead };
@@ -24,8 +25,70 @@ function formatPrice(price: number | null) {
   return `$${price.toFixed(2)}`;
 }
 
+/* ── Lead status dropdown — mirrors call dispositions ── */
+const LEAD_STATUSES = [
+  { value: "new_lead", label: "New Lead" },
+  { value: "booked", label: "Booked" },
+  { value: "standby", label: "Standby" },
+  { value: "lost", label: "Lost" },
+  { value: "callback", label: "Callback" },
+  { value: "spam", label: "Spam" },
+] as const;
+
+function deriveLeadStatus(lead: Lead, callDisp?: string | null): string {
+  // If linked call has a disposition, use that as the source of truth
+  if (callDisp) return callDisp;
+  if (lead.booked) return "booked";
+  return "new_lead";
+}
+
+function LeadStatusChanger({ lead, onChanged, callDisposition }: { lead: Lead; onChanged?: () => void; callDisposition?: string | null }) {
+  const [localValue, setLocalValue] = useState(() => deriveLeadStatus(lead, callDisposition));
+  const [isPending, startTransition] = useTransition();
+  const [toast, setToast] = useState<string | null>(null);
+
+  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    if (val === localValue) return;
+    setLocalValue(val);
+
+    startTransition(async () => {
+      const result = await updateLeadStatus(lead.id, val);
+      if (result.ok) {
+        setToast(LEAD_STATUSES.find(s => s.value === val)?.label || val);
+        setTimeout(() => setToast(null), 2000);
+        onChanged?.();
+      } else {
+        setLocalValue(deriveLeadStatus(lead));
+        setToast("Failed");
+        setTimeout(() => setToast(null), 2000);
+      }
+    });
+  };
+
+  return (
+    <div className="relative" onClick={(e) => e.stopPropagation()}>
+      <select
+        value={localValue}
+        onChange={handleChange}
+        disabled={isPending}
+        className="text-sm font-medium rounded-lg px-2 py-1.5 ring-1 ring-slate-200 bg-white hover:ring-blue-300 focus:ring-blue-400 focus:outline-none disabled:opacity-50 cursor-pointer"
+      >
+        {LEAD_STATUSES.map((s) => (
+          <option key={s.value} value={s.value}>{s.label}</option>
+        ))}
+      </select>
+      {toast && (
+        <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2 text-xs text-emerald-600 font-medium whitespace-nowrap">
+          {toast}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /* ── Expanded detail panel ── */
-function LeadDetail({ lead, hasJob }: { lead: Lead; hasJob: boolean }) {
+function LeadDetail({ lead, hasJob, onStatusChanged, callDisposition }: { lead: Lead; hasJob: boolean; onStatusChanged?: () => void; callDisposition?: string | null }) {
   return (
     <div className="px-5 py-4 bg-slate-50/60 space-y-4 text-sm border-t border-slate-100">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -65,14 +128,8 @@ function LeadDetail({ lead, hasJob }: { lead: Lead; hasJob: boolean }) {
           <div className="mt-0.5 font-semibold text-slate-900">{formatPrice(lead.price)}</div>
         </div>
         <div>
-          <div className="text-[11px] uppercase text-slate-400 font-medium">Status</div>
-          <div className="mt-0.5">
-            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
-              lead.booked ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
-            }`}>
-              {lead.booked ? "Booked" : "New Lead"}
-            </span>
-          </div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium mb-1">Status</div>
+          <LeadStatusChanger lead={lead} onChanged={onStatusChanged} callDisposition={callDisposition} />
         </div>
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium">Created</div>
@@ -106,15 +163,20 @@ function LeadDetail({ lead, hasJob }: { lead: Lead; hasJob: boolean }) {
 export default function LeadsTable({
   leads,
   leadIdsWithJobs: leadIdsArr,
+  callDispositions = {},
 }: {
   leads: Lead[];
   leadIdsWithJobs: string[];
+  callDispositions?: Record<string, string>;
 }) {
+  const router = useRouter();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const leadIdsWithJobs = new Set(leadIdsArr);
 
   const toggle = (id: string) =>
     setExpandedId((prev) => (prev === id ? null : id));
+
+  const handleStatusChanged = () => router.refresh();
 
   if (leads.length === 0) {
     return (
@@ -153,12 +215,8 @@ export default function LeadsTable({
                       {lead.service || "—"} · {lead.city || "—"}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                      lead.booked ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
-                    }`}>
-                      {lead.booked ? "Booked" : "New"}
-                    </span>
+                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <LeadStatusChanger lead={lead} onChanged={handleStatusChanged} callDisposition={lead.call_id ? callDispositions[lead.call_id] : null} />
                     <span className={`text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`}>
                       ▾
                     </span>
@@ -168,10 +226,9 @@ export default function LeadsTable({
 
               {isOpen && (
                 <>
-                  <LeadDetail lead={lead} hasJob={hasJob} />
+                  <LeadDetail lead={lead} hasJob={hasJob} onStatusChanged={handleStatusChanged} callDisposition={lead.call_id ? callDispositions[lead.call_id] : null} />
                   <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
-                      <BookedToggle id={lead.id} booked={!!lead.booked} />
                       <DeleteLeadButton leadId={lead.id} />
                     </div>
                     <CreateJobButton
@@ -200,7 +257,7 @@ export default function LeadsTable({
                 <th className="text-left px-4 py-3">Service</th>
                 <th className="text-left px-4 py-3">City</th>
                 <th className="text-left px-4 py-3">Source</th>
-                <th className="text-left px-4 py-3">Booked</th>
+                <th className="text-left px-4 py-3">Status</th>
                 <th className="text-left px-4 py-3">Price</th>
                 <th className="text-right px-4 py-3">Job</th>
               </tr>
@@ -231,7 +288,7 @@ export default function LeadsTable({
                       </span>
                     </td>
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      <BookedToggle id={lead.id} booked={!!lead.booked} />
+                      <LeadStatusChanger lead={lead} onChanged={handleStatusChanged} callDisposition={lead.call_id ? callDispositions[lead.call_id] : null} />
                     </td>
                     <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">
                       {formatPrice(lead.price)}
@@ -250,7 +307,7 @@ export default function LeadsTable({
                   {isOpen && (
                     <tr>
                       <td colSpan={9} className="p-0">
-                        <LeadDetail lead={lead} hasJob={hasJob} />
+                        <LeadDetail lead={lead} hasJob={hasJob} onStatusChanged={handleStatusChanged} callDisposition={lead.call_id ? callDispositions[lead.call_id] : null} />
                       </td>
                     </tr>
                   )}

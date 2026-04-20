@@ -2,6 +2,7 @@ import Topbar from "@/components/dashboard/Topbar";
 import CallCenterClient from "./CallCenterClient";
 import { supabase } from "@/lib/supabase";
 import { mapCallToCallCenter } from "./mapCall";
+import { startOfToday } from "@/lib/queries";
 
 import type { Call } from "@/lib/types";
 
@@ -9,14 +10,11 @@ import type { Call } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export default async function CallCenterPage() {
-  // Fetch today's calls from Supabase
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-
+  // Fetch today's calls from Supabase (using Pacific timezone)
   const { data: callRows } = await supabase
     .from("calls")
     .select("*")
-    .gte("created_at", todayStart.toISOString())
+    .gte("created_at", startOfToday())
     .order("created_at", { ascending: false })
     .limit(50);
 

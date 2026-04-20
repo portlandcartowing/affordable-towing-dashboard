@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import JobStatusBadge from "@/components/dispatch/JobStatusBadge";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import DeleteJobButton from "./DeleteJobButton";
 import EmptyState from "@/components/dashboard/EmptyState";
-import type { Job } from "@/lib/types";
+import { updateJobStatus } from "@/app/jobs/jobActions";
+import type { Job, JobStatus } from "@/lib/types";
 
 const money = (n: number) =>
   n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -20,8 +21,94 @@ function formatTime(iso: string | null) {
   });
 }
 
+/* ── Simplified status options — matches calls/leads ── */
+const SIMPLE_STATUSES = [
+  { value: "new_lead", label: "New Lead" },
+  { value: "booked", label: "Booked" },
+  { value: "standby", label: "Standby" },
+  { value: "lost", label: "Lost" },
+  { value: "callback", label: "Callback" },
+  { value: "completed", label: "Completed" },
+] as const;
+
+// Map the full job statuses to the simplified set for display
+function simplifyJobStatus(status: JobStatus): string {
+  const map: Record<string, string> = {
+    new_lead: "new_lead",
+    quoted: "standby",
+    booked: "booked",
+    waiting_for_driver: "booked",
+    posted_to_load_board: "booked",
+    driver_assigned: "booked",
+    in_transit: "booked",
+    completed: "completed",
+    cancelled: "lost",
+  };
+  return map[status] || "new_lead";
+}
+
+// Map simplified status back to job status for the DB
+function expandToJobStatus(simple: string): JobStatus {
+  const map: Record<string, JobStatus> = {
+    new_lead: "new_lead",
+    booked: "booked",
+    standby: "quoted",
+    lost: "cancelled",
+    callback: "quoted",
+    completed: "completed",
+  };
+  return map[simple] || "new_lead";
+}
+
+function JobStatusChanger({ job, onChanged }: { job: Job; onChanged?: () => void }) {
+  const [localValue, setLocalValue] = useState(() => simplifyJobStatus(job.status));
+  const [isPending, startTransition] = useTransition();
+  const [toast, setToast] = useState<string | null>(null);
+
+  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    if (val === localValue) return;
+    setLocalValue(val);
+
+    const dbStatus = expandToJobStatus(val);
+    startTransition(async () => {
+      const result = await updateJobStatus(job.id, dbStatus);
+      if (result.ok) {
+        const label = SIMPLE_STATUSES.find(s => s.value === val)?.label || val;
+        setToast(`Changed to ${label}`);
+        setTimeout(() => setToast(null), 2000);
+        onChanged?.();
+      } else {
+        setLocalValue(simplifyJobStatus(job.status));
+        setToast("Failed");
+        setTimeout(() => setToast(null), 2000);
+      }
+    });
+  };
+
+  return (
+    <div className="relative" onClick={(e) => e.stopPropagation()}>
+      <select
+        value={localValue}
+        onChange={handleChange}
+        disabled={isPending}
+        className="text-sm font-medium rounded-lg px-2 py-1.5 ring-1 ring-slate-200 bg-white hover:ring-blue-300 focus:ring-blue-400 focus:outline-none disabled:opacity-50 cursor-pointer"
+      >
+        {SIMPLE_STATUSES.map((s) => (
+          <option key={s.value} value={s.value}>{s.label}</option>
+        ))}
+      </select>
+      {toast && (
+        <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2 text-xs text-emerald-600 font-medium whitespace-nowrap">
+          {toast}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /* ── Expanded detail panel ── */
-function JobDetail({ job }: { job: Job }) {
+function JobDetail({ job, onStatusChanged }: { job: Job; onStatusChanged?: () => void }) {
   const vehicle = [job.vehicle_year, job.vehicle_make, job.vehicle_model]
     .filter(Boolean)
     .join(" ");
@@ -49,7 +136,7 @@ function JobDetail({ job }: { job: Job }) {
         </div>
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium">Status</div>
-          <div className="mt-0.5"><JobStatusBadge status={job.status} /></div>
+          <div className="mt-0.5"><JobStatusChanger job={job} onChanged={onStatusChanged} /></div>
         </div>
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium">Created</div>
@@ -135,6 +222,8 @@ function JobDetail({ job }: { job: Job }) {
 }
 
 export default function JobsTable({ jobs }: { jobs: Job[] }) {
+  const router = useRouter();
+  const handleStatusChanged = () => router.refresh();
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const toggle = (id: string) =>
@@ -180,8 +269,8 @@ export default function JobsTable({ jobs }: { jobs: Job[] }) {
                     </div>
                     <div className="text-xs text-slate-500 truncate">{job.customer || "—"}</div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <JobStatusBadge status={job.status} />
+                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <JobStatusChanger job={job} onChanged={handleStatusChanged} />
                     <span className={`text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`}>
                       ▾
                     </span>
@@ -218,7 +307,7 @@ export default function JobsTable({ jobs }: { jobs: Job[] }) {
                 </div>
               </button>
 
-              {isOpen && <JobDetail job={job} />}
+              {isOpen && <JobDetail job={job} onStatusChanged={handleStatusChanged} />}
             </div>
           );
         })}
@@ -261,8 +350,8 @@ export default function JobsTable({ jobs }: { jobs: Job[] }) {
                       isOpen ? "bg-blue-50/40" : "hover:bg-slate-50/50"
                     }`}
                   >
-                    <td className="px-4 py-3">
-                      <JobStatusBadge status={job.status} />
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <JobStatusChanger job={job} onChanged={handleStatusChanged} />
                     </td>
                     <td className="px-4 py-3 font-medium text-slate-900">
                       {job.customer || "—"}
@@ -286,7 +375,7 @@ export default function JobsTable({ jobs }: { jobs: Job[] }) {
                   {isOpen && (
                     <tr>
                       <td colSpan={9} className="p-0">
-                        <JobDetail job={job} />
+                        <JobDetail job={job} onStatusChanged={handleStatusChanged} />
                       </td>
                     </tr>
                   )}

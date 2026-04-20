@@ -4,6 +4,14 @@ import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { parseTranscript } from "@/lib/transcriptParser";
 
+const revalidateAll = () => {
+  revalidatePath("/calls");
+  revalidatePath("/call-center");
+  revalidatePath("/leads");
+  revalidatePath("/jobs");
+  revalidatePath("/dashboard");
+};
+
 /**
  * One-tap lead creation from an inbound call.
  */
@@ -60,10 +68,64 @@ export async function createLeadFromCall(callId: string) {
     return { ok: false as const, error: linkError.message };
   }
 
-  revalidatePath("/calls");
-  revalidatePath("/leads");
-  revalidatePath("/dashboard");
+  revalidateAll();
   return { ok: true as const, leadId: lead.id as string };
+}
+
+/**
+ * Update a call's disposition and sync the linked lead + job.
+ *
+ * - "booked" → marks linked lead as booked, linked job as "booked"
+ * - "lost" / "spam" / null → marks linked lead as NOT booked
+ * - "standby" / "callback" → no change to lead booking status
+ */
+export async function updateCallDisposition(
+  callId: string,
+  disposition: string | null,
+) {
+  const { error } = await supabase
+    .from("calls")
+    .update({
+      disposition,
+      converted_to_job: disposition === "booked",
+    })
+    .eq("id", callId);
+
+  if (error) return { ok: false, error: error.message };
+
+  // Sync linked lead and job
+  const { data: call } = await supabase
+    .from("calls")
+    .select("lead_id")
+    .eq("id", callId)
+    .single();
+
+  if (call?.lead_id) {
+    // Sync lead booked status
+    await supabase
+      .from("leads")
+      .update({ booked: disposition === "booked" })
+      .eq("id", call.lead_id);
+
+    // Sync job status — map disposition to job pipeline stage
+    const jobStatusMap: Record<string, string> = {
+      booked: "booked",
+      standby: "quoted",
+      callback: "quoted",
+      lost: "cancelled",
+      spam: "cancelled",
+    };
+    const newJobStatus = disposition ? jobStatusMap[disposition] : "new_lead";
+    if (newJobStatus) {
+      await supabase
+        .from("jobs")
+        .update({ status: newJobStatus })
+        .eq("lead_id", call.lead_id);
+    }
+  }
+
+  revalidateAll();
+  return { ok: true };
 }
 
 /**
@@ -76,9 +138,7 @@ export async function deleteCall(callId: string) {
   const { error } = await supabase.from("calls").delete().eq("id", callId);
   if (error) return { ok: false, error: error.message };
 
-  revalidatePath("/calls");
-  revalidatePath("/call-center");
-  revalidatePath("/dashboard");
+  revalidateAll();
   return { ok: true };
 }
 
@@ -90,8 +150,6 @@ export async function deleteAllCalls() {
   const { error } = await supabase.from("calls").delete().neq("id", "00000000-0000-0000-0000-000000000000");
   if (error) return { ok: false, error: error.message };
 
-  revalidatePath("/calls");
-  revalidatePath("/call-center");
-  revalidatePath("/dashboard");
+  revalidateAll();
   return { ok: true };
 }
