@@ -22,13 +22,18 @@ export async function POST(req: NextRequest) {
     const dialedNumber = (body.get("To") as string) || null;
     const callSid = (body.get("CallSid") as string) || null;
 
-    // Route calls based on which number was dialed:
-    // - 1991 (testing) → TEST_FORWARD_NUMBER
-    // - All others (7014 GMB, 6323 Ads) → FORWARD_PHONE_NUMBER (production)
-    const testNumber = process.env.TWILIO_PHONE_NUMBER || "";
-    const forwardTo = dialedNumber === testNumber
-      ? (process.env.TEST_FORWARD_NUMBER || process.env.FORWARD_PHONE_NUMBER || "")
-      : (process.env.FORWARD_PHONE_NUMBER || "");
+    // Route calls based on which Twilio number was dialed:
+    // +15034611991 (testing)   → +13609544215
+    // +15034066323 (Ads)       → +13603888741
+    // +15036087014 (GMB)       → +13603888741
+    const FORWARD_MAP: Record<string, string> = {
+      "+15034611991": "+13609544215",
+      "+15034066323": "+13603888741",
+      "+15036087014": "+13603888741",
+    };
+    const forwardTo = (dialedNumber && FORWARD_MAP[dialedNumber])
+      || process.env.FORWARD_PHONE_NUMBER
+      || "+13603888741";
     const baseUrl = `https://${req.headers.get("host")}`;
     const statusCallback = `${baseUrl}/api/twilio/status`;
 
