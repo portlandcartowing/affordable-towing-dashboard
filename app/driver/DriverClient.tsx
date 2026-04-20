@@ -54,16 +54,37 @@ const NON_RUNNER_FEE = 30;
 // ---------------------------------------------------------------------------
 // Upsert driver row after sign-in
 // ---------------------------------------------------------------------------
-async function upsertDriver(session: Session) {
+// Check if the signed-in user's email exists in the drivers table.
+// Only pre-approved drivers (added via /drivers page) can use the app.
+// If approved, link their auth ID to the driver record.
+// ---------------------------------------------------------------------------
+async function verifyAndLinkDriver(session: Session): Promise<{ ok: boolean; error?: string }> {
   const user = session.user;
-  await sbClient.from("drivers").upsert(
-    {
-      id: user.id,
-      name: user.user_metadata?.full_name || user.email,
+  const email = user.email?.toLowerCase();
+  if (!email) return { ok: false, error: "No email on account" };
+
+  // Check if this email is in the drivers table (pre-approved by admin)
+  const { data: driver } = await sbClient
+    .from("drivers")
+    .select("id")
+    .ilike("email", email)
+    .limit(1)
+    .single();
+
+  if (!driver) {
+    return { ok: false, error: "Your email is not authorized. Contact your dispatcher to get added." };
+  }
+
+  // Update the driver record with their name and set to available
+  await sbClient
+    .from("drivers")
+    .update({
+      name: user.user_metadata?.full_name || email,
       status: "available",
-    },
-    { onConflict: "id" },
-  );
+    })
+    .eq("id", driver.id);
+
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -74,14 +95,31 @@ export default function DriverClient() {
   const router = useRouter();
   const [session, setSession] = useState<Session | null | undefined>(undefined);
 
+  const [authError, setAuthError] = useState<string | null>(null);
+
   useEffect(() => {
-    sbClient.auth.getSession().then(({ data: { session: s } }) => {
+    sbClient.auth.getSession().then(async ({ data: { session: s } }) => {
       if (!s) { router.replace("/driver/login"); return; }
+
+      const result = await verifyAndLinkDriver(s);
+      if (!result.ok) {
+        setAuthError(result.error || "Not authorized");
+        await sbClient.auth.signOut();
+        return;
+      }
+
       setSession(s);
-      upsertDriver(s);
     });
-    const { data: { subscription } } = sbClient.auth.onAuthStateChange((_event, s) => {
+    const { data: { subscription } } = sbClient.auth.onAuthStateChange(async (_event, s) => {
       if (!s) { router.replace("/driver/login"); return; }
+
+      const result = await verifyAndLinkDriver(s);
+      if (!result.ok) {
+        setAuthError(result.error || "Not authorized");
+        await sbClient.auth.signOut();
+        return;
+      }
+
       setSession(s);
     });
     return () => subscription.unsubscribe();
@@ -404,6 +442,24 @@ export default function DriverClient() {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-slate-900">
         <div className="text-slate-400 text-sm">Loading…</div>
+      </div>
+    );
+  }
+
+  if (authError) {
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center p-6 bg-slate-900">
+        <div className="w-20 h-20 rounded-full bg-rose-600/20 flex items-center justify-center mb-6">
+          <span className="text-3xl">🚫</span>
+        </div>
+        <h1 className="text-xl font-bold text-white mb-2">Not Authorized</h1>
+        <p className="text-slate-400 text-sm text-center max-w-xs mb-6">{authError}</p>
+        <button
+          onClick={() => { setAuthError(null); router.replace("/driver/login"); }}
+          className="px-6 py-3 rounded-xl bg-white text-slate-900 font-semibold text-sm hover:bg-slate-100"
+        >
+          Back to Login
+        </button>
       </div>
     );
   }

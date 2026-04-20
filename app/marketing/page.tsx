@@ -2,6 +2,7 @@ import Topbar from "@/components/dashboard/Topbar";
 import KpiCard from "@/components/dashboard/KpiCard";
 import DateRangePicker from "@/components/marketing/DateRangePicker";
 import CampaignTable from "@/components/marketing/CampaignTable";
+import CsvUpload from "@/components/marketing/CsvUpload";
 import {
   getAdSpend,
   summarizeCampaigns,
@@ -66,6 +67,8 @@ export default async function MarketingPage({
           />
           <KpiCard title="Avg CPC" value={money(avgCpc)} icon="◎" />
         </div>
+
+        <CsvUpload />
 
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
           <div className="p-5 border-b border-b-slate-100">
