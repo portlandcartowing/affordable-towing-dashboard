@@ -69,13 +69,13 @@ export async function updateLeadStatus(leadId: string, status: string) {
       .eq("id", lead.call_id);
   }
 
-  // Sync linked job — map status to job pipeline stage
+  // Sync linked job — 1:1 mapping now
   const jobStatusMap: Record<string, string> = {
     booked: "booked",
-    standby: "quoted",
-    callback: "quoted",
-    lost: "cancelled",
-    spam: "cancelled",
+    standby: "standby",
+    callback: "callback",
+    lost: "lost",
+    spam: "spam",
     new_lead: "new_lead",
   };
   const newJobStatus = jobStatusMap[status];

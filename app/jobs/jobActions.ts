@@ -14,15 +14,19 @@ const revalidateAll = () => {
 
 // Maps job status back to call disposition + lead booked state
 const JOB_TO_CALL: Record<string, { disposition: string | null; booked: boolean }> = {
-  new_lead:           { disposition: null,       booked: false },
-  quoted:             { disposition: "standby",  booked: false },
-  booked:             { disposition: "booked",   booked: true },
-  waiting_for_driver: { disposition: "booked",   booked: true },
-  posted_to_load_board: { disposition: "booked", booked: true },
-  driver_assigned:    { disposition: "booked",   booked: true },
-  in_transit:         { disposition: "booked",   booked: true },
-  completed:          { disposition: "booked",   booked: true },
-  cancelled:          { disposition: "lost",     booked: false },
+  new_lead:           { disposition: null,        booked: false },
+  quoted:             { disposition: "standby",   booked: false },
+  standby:            { disposition: "standby",   booked: false },
+  callback:           { disposition: "callback",  booked: false },
+  lost:               { disposition: "lost",      booked: false },
+  spam:               { disposition: "spam",      booked: false },
+  booked:             { disposition: "booked",    booked: true },
+  waiting_for_driver: { disposition: "booked",    booked: true },
+  posted_to_load_board: { disposition: "booked",  booked: true },
+  driver_assigned:    { disposition: "booked",    booked: true },
+  in_transit:         { disposition: "booked",    booked: true },
+  completed:          { disposition: "booked",    booked: true },
+  cancelled:          { disposition: "lost",      booked: false },
 };
 
 export async function updateJobStatus(jobId: string, status: JobStatus) {

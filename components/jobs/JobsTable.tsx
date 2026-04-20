@@ -37,6 +37,10 @@ function simplifyJobStatus(status: JobStatus): string {
     new_lead: "new_lead",
     quoted: "standby",
     booked: "booked",
+    standby: "standby",
+    callback: "callback",
+    lost: "lost",
+    spam: "lost",
     waiting_for_driver: "booked",
     posted_to_load_board: "booked",
     driver_assigned: "booked",
@@ -47,14 +51,14 @@ function simplifyJobStatus(status: JobStatus): string {
   return map[status] || "new_lead";
 }
 
-// Map simplified status back to job status for the DB
+// Map simplified status back to job status for the DB — 1:1 now
 function expandToJobStatus(simple: string): JobStatus {
   const map: Record<string, JobStatus> = {
     new_lead: "new_lead",
     booked: "booked",
-    standby: "quoted",
-    lost: "cancelled",
-    callback: "quoted",
+    standby: "standby",
+    lost: "lost",
+    callback: "callback",
     completed: "completed",
   };
   return map[simple] || "new_lead";

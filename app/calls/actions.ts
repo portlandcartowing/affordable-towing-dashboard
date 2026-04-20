@@ -107,13 +107,13 @@ export async function updateCallDisposition(
       .update({ booked: disposition === "booked" })
       .eq("id", call.lead_id);
 
-    // Sync job status — map disposition to job pipeline stage
+    // Sync job status — 1:1 mapping now
     const jobStatusMap: Record<string, string> = {
       booked: "booked",
-      standby: "quoted",
-      callback: "quoted",
-      lost: "cancelled",
-      spam: "cancelled",
+      standby: "standby",
+      callback: "callback",
+      lost: "lost",
+      spam: "spam",
     };
     const newJobStatus = disposition ? jobStatusMap[disposition] : "new_lead";
     if (newJobStatus) {
