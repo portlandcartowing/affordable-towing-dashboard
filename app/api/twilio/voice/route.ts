@@ -142,14 +142,13 @@ export async function POST(req: NextRequest) {
       ? availableDriver.email.replace(/[^a-zA-Z0-9]/g, "_")
       : null;
 
-    // TwiML: record + try VoIP client, fall back to phone
+    // TwiML: record + forward to driver's phone
+    // Only add VoIP client if a driver is available and VoIP is configured
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial record="record-from-answer-dual"
         recordingStatusCallback="${statusCallback}"
-        recordingStatusCallbackMethod="POST"
-        timeout="15">
-    ${driverIdentity ? `<Client>${driverIdentity}</Client>` : ""}
+        recordingStatusCallbackMethod="POST">
     <Number>${forwardTo}</Number>
   </Dial>
 </Response>`;
