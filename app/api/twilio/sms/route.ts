@@ -81,7 +81,36 @@ export async function POST(req: NextRequest) {
     // Push notification is best-effort
   }
 
+  // 6. Forward the inbound SMS to the owner's cell so they see it on their phone.
+  //    Uses Twilio REST API. Sent from the tracking number the customer texted,
+  //    so replies from the owner's phone won't thread correctly — this is one-way relay.
+  await forwardInboundSms({ from, to, body: messageBody }).catch(() => {});
+
   return twimlResponse(replyText);
+}
+
+async function forwardInboundSms(args: { from: string | null; to: string | null; body: string }) {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const relayTo = process.env.SMS_FORWARD_NUMBER || "+15033888741";
+  if (!sid || !token || !args.to || !args.from) return;
+  if (args.to === relayTo) return; // avoid loop if Twilio number ever equals the relay target
+
+  const preview = `[${args.to}] ${args.from}: ${args.body.slice(0, 1400)}`;
+  const params = new URLSearchParams({
+    To: relayTo,
+    From: args.to,
+    Body: preview,
+  });
+
+  await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: params.toString(),
+  });
 }
 
 // ---------------------------------------------------------------------------
