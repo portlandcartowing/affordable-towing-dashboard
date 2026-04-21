@@ -52,9 +52,12 @@ export async function transcribeRecording(recordingUrl: string): Promise<Transcr
 
     const audioBuffer = await audioRes.arrayBuffer();
 
-    // Send to Deepgram with diarization + utterances
+    // Send to Deepgram with multichannel + utterances.
+    // Twilio records dual-channel audio (record-from-answer-dual): channel 0
+    // is the caller, channel 1 is the dispatcher. Multichannel gives us
+    // deterministic speaker mapping — no diarization guesswork.
     const dgRes = await fetch(
-      "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&diarize=true&punctuate=true&utterances=true",
+      "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&multichannel=true&punctuate=true&utterances=true",
       {
         method: "POST",
         headers: {
@@ -73,13 +76,19 @@ export async function transcribeRecording(recordingUrl: string): Promise<Transcr
 
     const result = await dgRes.json();
 
-    // Try to build speaker-labeled transcript from utterances
+    // Preferred: multichannel utterances (each has a `channel` field)
     const rawUtterances = result?.results?.utterances;
     if (Array.isArray(rawUtterances) && rawUtterances.length > 0) {
-      return buildChatTranscript(rawUtterances);
+      const hasChannel = rawUtterances.some(
+        (u: { channel?: number }) => typeof u.channel === "number",
+      );
+      if (hasChannel) return buildChatTranscriptMultichannel(rawUtterances);
+
+      // Single-channel recording fell through (mono audio) — diarize fallback.
+      return buildChatTranscriptDiarize(rawUtterances);
     }
 
-    // Fallback: flat transcript (no speaker labels available)
+    // Last-resort fallback: flat transcript from channel 0
     const flat =
       result?.results?.channels?.[0]?.alternatives?.[0]?.transcript || null;
     if (!flat) return null;
@@ -95,18 +104,38 @@ export async function transcribeRecording(recordingUrl: string): Promise<Transcr
 }
 
 // ---------------------------------------------------------------------------
-// Build chat-style transcript from Deepgram utterances.
-//
-// Deepgram uses numeric speaker IDs (0, 1, ...). In a typical towing call
-// the first speaker is the dispatcher (they answer the phone). Speaker 0
-// = dispatcher, speaker 1 = caller/customer. If there are more speakers
-// we label them as "caller" since multi-party calls are rare.
+// Multichannel path (preferred): Twilio dual-channel recording gives us
+// channel 0 = caller, channel 1 = dispatcher. No voice matching required.
 // ---------------------------------------------------------------------------
 
-function buildChatTranscript(
-  rawUtterances: Array<{ speaker: number; transcript: string; start: number }>,
+function buildChatTranscriptMultichannel(
+  rawUtterances: Array<{ channel?: number; transcript: string; start: number }>,
 ): TranscriptionResult {
-  // Determine which speaker ID is the dispatcher (first to speak = dispatcher)
+  const utterances: TranscriptUtterance[] = rawUtterances
+    .slice()
+    .sort((a, b) => a.start - b.start)
+    .map((u) => ({
+      speaker: (u.channel === 1 ? "dispatcher" : "caller") as "caller" | "dispatcher",
+      text: u.transcript.trim(),
+      start: u.start,
+    }))
+    .filter((u) => u.text.length > 0);
+
+  const transcript = utterances
+    .map((u) => `${u.speaker === "dispatcher" ? "Dispatcher" : "Customer"}: ${u.text}`)
+    .join("\n");
+
+  return { transcript, utterances };
+}
+
+// ---------------------------------------------------------------------------
+// Diarize fallback (mono audio): guess dispatcher as the first speaker.
+// Only used when multichannel info is unavailable.
+// ---------------------------------------------------------------------------
+
+function buildChatTranscriptDiarize(
+  rawUtterances: Array<{ speaker?: number; transcript: string; start: number }>,
+): TranscriptionResult {
   const dispatcherSpeaker = rawUtterances[0]?.speaker ?? 0;
 
   const utterances: TranscriptUtterance[] = rawUtterances.map((u) => ({
@@ -115,12 +144,8 @@ function buildChatTranscript(
     start: u.start,
   }));
 
-  // Format as readable chat-style text
   const transcript = utterances
-    .map((u) => {
-      const label = u.speaker === "dispatcher" ? "Dispatcher" : "Customer";
-      return `${label}: ${u.text}`;
-    })
+    .map((u) => `${u.speaker === "dispatcher" ? "Dispatcher" : "Customer"}: ${u.text}`)
     .join("\n");
 
   return { transcript, utterances };
