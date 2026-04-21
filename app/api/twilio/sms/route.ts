@@ -27,6 +27,23 @@ export async function POST(req: NextRequest) {
     return twimlResponse("");
   }
 
+  // 0. Owner replying from their cell → relay to the most recent customer on
+  //    this tracking number. Owner's cell texts the Twilio tracking number
+  //    directly (which is what they see as the sender on inbound relays).
+  const ownerCell = process.env.SMS_FORWARD_NUMBER || "+15033888741";
+  if (from === ownerCell && to) {
+    const delivered = await relayOwnerReplyToCustomer({
+      trackingNumber: to,
+      ownerCell,
+      body: messageBody,
+      twilioSid: messageSid,
+    });
+    // Confirm back to the owner so they know it was (or wasn't) delivered.
+    return twimlResponse(delivered
+      ? `✓ sent to ${delivered}`
+      : "No recent customer to reply to on this number.");
+  }
+
   // 1. Find linked call, lead, and job by phone number
   const { callId, leadId, jobId } = await findLinkedRecords(from);
 
@@ -94,7 +111,8 @@ async function forwardInboundSms(args: { from: string | null; to: string | null;
   const token = process.env.TWILIO_AUTH_TOKEN;
   const relayTo = process.env.SMS_FORWARD_NUMBER || "+15033888741";
   if (!sid || !token || !args.to || !args.from) return;
-  if (args.to === relayTo) return; // avoid loop if Twilio number ever equals the relay target
+  if (args.from === relayTo) return; // don't relay owner's own messages
+  if (args.to === relayTo) return;   // avoid loop if Twilio number ever equals the relay target
 
   const preview = `[${args.to}] ${args.from}: ${args.body.slice(0, 1400)}`;
   const params = new URLSearchParams({
@@ -103,6 +121,54 @@ async function forwardInboundSms(args: { from: string | null; to: string | null;
     Body: preview,
   });
 
+  await sendTwilioSms(sid, token, params);
+}
+
+async function relayOwnerReplyToCustomer(args: {
+  trackingNumber: string;
+  ownerCell: string;
+  body: string;
+  twilioSid: string | null;
+}): Promise<string | null> {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  if (!sid || !token) return null;
+
+  // Find the most recent customer who texted this tracking number
+  const { data: recent } = await supabase
+    .from("messages")
+    .select("from_number")
+    .eq("to_number", args.trackingNumber)
+    .eq("direction", "inbound")
+    .neq("from_number", args.ownerCell)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  const customerPhone = recent?.from_number;
+  if (!customerPhone) return null;
+
+  const params = new URLSearchParams({
+    To: customerPhone,
+    From: args.trackingNumber,
+    Body: args.body.slice(0, 1600),
+  });
+  await sendTwilioSms(sid, token, params);
+
+  // Log as outbound so the dashboard sees the full thread
+  await supabase.from("messages").insert({
+    direction: "outbound",
+    from_number: args.trackingNumber,
+    to_number: customerPhone,
+    body: args.body,
+    twilio_sid: args.twilioSid,
+    status: "sent",
+  });
+
+  return customerPhone;
+}
+
+async function sendTwilioSms(sid: string, token: string, params: URLSearchParams) {
   await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
     method: "POST",
     headers: {
