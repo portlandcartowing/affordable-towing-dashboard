@@ -2,6 +2,7 @@ import Topbar from "@/components/dashboard/Topbar";
 import { AVAILABLE_PROVIDERS } from "@/lib/loadBoard";
 import { AVAILABLE_CALL_PROVIDERS } from "@/lib/callTracking";
 import { getTrackingNumbers } from "@/lib/trackingNumbers";
+import TrackingNumberRow from "./TrackingNumberRow";
 
 export const revalidate = 30;
 
@@ -30,7 +31,7 @@ export default async function SettingsPage() {
         <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
           <h3 className="font-semibold text-slate-900">Tracking Numbers</h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Each number maps to a source for call attribution.
+            Each number maps to a source for call attribution. Click a source to rename it — new calls will use the updated name.
           </p>
           <ul className="mt-4 divide-y divide-slate-100">
             {trackingNumbers.length === 0 ? (
@@ -39,20 +40,7 @@ export default async function SettingsPage() {
               </li>
             ) : (
               trackingNumbers.map((tn) => (
-                <li key={tn.id} className="flex items-center justify-between py-3">
-                  <div>
-                    <div className="text-sm font-medium text-slate-900 tabular-nums">
-                      {tn.phone_number}
-                    </div>
-                    <div className="text-xs text-slate-500">{tn.label}</div>
-                  </div>
-                  <div className="text-right">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700">
-                      {tn.source}
-                    </span>
-                    <div className="text-[10px] text-slate-400 mt-0.5">{tn.channel}</div>
-                  </div>
-                </li>
+                <TrackingNumberRow key={tn.id} tn={tn} />
               ))
             )}
           </ul>
