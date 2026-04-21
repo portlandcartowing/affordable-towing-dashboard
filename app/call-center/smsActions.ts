@@ -4,6 +4,41 @@ import { supabase } from "@/lib/supabase";
 import { getTwilioClient, twilioNumber } from "@/lib/twilio";
 
 // ---------------------------------------------------------------------------
+// Resolve which tracking number to send FROM so the customer receives a
+// reply from the same number they originally dialed/texted.
+//
+// Priority:
+//   1. calls.tracking_number attached to callId (most authoritative)
+//   2. Most recent inbound message's to_number from this caller
+//   3. Fallback: TWILIO_PHONE_NUMBER env default
+// ---------------------------------------------------------------------------
+async function resolveFromNumber(
+  to: string,
+  callId: string | null,
+): Promise<string> {
+  if (callId) {
+    const { data: call } = await supabase
+      .from("calls")
+      .select("tracking_number")
+      .eq("id", callId)
+      .single();
+    if (call?.tracking_number) return call.tracking_number;
+  }
+
+  const { data: lastInbound } = await supabase
+    .from("messages")
+    .select("to_number")
+    .eq("direction", "inbound")
+    .eq("from_number", to)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+  if (lastInbound?.to_number) return lastInbound.to_number;
+
+  return twilioNumber;
+}
+
+// ---------------------------------------------------------------------------
 // Send an SMS to a customer and log it in the messages table.
 // Called from the MessagesPanel compose input.
 // ---------------------------------------------------------------------------
@@ -39,17 +74,19 @@ export async function getTwilioSendAction(
     }
   }
 
+  const fromNumber = await resolveFromNumber(to, callId);
+
   try {
     const msg = await getTwilioClient().messages.create({
       to,
-      from: twilioNumber,
+      from: fromNumber,
       body,
     });
 
     // Log to messages table
     await supabase.from("messages").insert({
       direction: "outbound",
-      from_number: twilioNumber,
+      from_number: fromNumber,
       to_number: to,
       body,
       call_id: callId,

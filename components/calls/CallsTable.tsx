@@ -9,6 +9,9 @@ import BulkDeleteButton from "./BulkDeleteButton";
 import { updateCallDisposition } from "@/app/calls/actions";
 import type { Call, CallDisposition } from "@/lib/types";
 import { CALL_DISPOSITIONS } from "@/lib/types";
+import AudioPlayer from "./AudioPlayer";
+import CollapsibleTranscript from "./CollapsibleTranscript";
+import MessagesPanel from "@/app/call-center/components/MessagesPanel";
 
 function formatTime(iso: string | null) {
   if (!iso) return "—";
@@ -158,16 +161,23 @@ function CallDetail({ call, onDispositionChanged }: { call: Call; onDispositionC
       {call.transcript && (
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium mb-1">Transcript</div>
-          <div className="text-slate-700 bg-white rounded-lg px-3 py-2 ring-1 ring-slate-200/70 whitespace-pre-wrap max-h-48 overflow-y-auto text-xs leading-relaxed">{call.transcript}</div>
+          <CollapsibleTranscript text={call.transcript} />
         </div>
       )}
 
       {call.recording_url && (
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium mb-1">Recording</div>
-          <audio controls className="w-full max-w-md" preload="none">
-            <source src={call.recording_url} />
-          </audio>
+          <AudioPlayer src={call.recording_url} />
+        </div>
+      )}
+
+      {call.caller_phone && (
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium mb-1">Text Messages</div>
+          <div className="h-[360px]">
+            <MessagesPanel callerPhone={call.caller_phone} callId={call.id} />
+          </div>
         </div>
       )}
 

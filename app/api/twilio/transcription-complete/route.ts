@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { parseTranscript } from "@/lib/transcriptParser";
+import { generateAISummary } from "@/lib/postCallProcessor";
 
 // ---------------------------------------------------------------------------
 // Twilio Transcription Complete Callback
 //
-// Fired when Twilio finishes transcribing a recording. Saves the
-// transcript text to the call record and runs the parser to extract
-// structured fields (service type, pickup, vehicle, etc).
+// Fired when Twilio finishes its built-in transcription of a recording.
+// Saves the transcript text and generates a real Claude-powered summary.
+//
+// Note: the Deepgram pipeline in /api/twilio/status/route.ts also generates
+// an AI summary via processPostCall. Whichever webhook fires last wins —
+// both now produce a real Claude summary, so the result is consistent.
 // ---------------------------------------------------------------------------
 
 export async function POST(req: NextRequest) {
@@ -28,25 +31,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Missing data" }, { status: 400 });
   }
 
-  // Parse the transcript for structured fields
-  const parsed = parseTranscript(transcriptionText);
+  const aiSummary = await generateAISummary(transcriptionText);
 
-  // Build AI summary from parsed data
-  const summaryParts: string[] = [];
-  if (parsed.service_type) summaryParts.push(parsed.service_type);
-  if (parsed.vehicle) summaryParts.push(parsed.vehicle);
-  if (parsed.pickup_city && parsed.dropoff_city) {
-    summaryParts.push(`${parsed.pickup_city} → ${parsed.dropoff_city}`);
-  } else if (parsed.pickup_city) {
-    summaryParts.push(`in ${parsed.pickup_city}`);
-  }
-  if (parsed.urgency === "asap") summaryParts.push("ASAP");
-
-  const aiSummary = summaryParts.length > 0
-    ? summaryParts.join(" · ")
-    : "Call transcribed — review transcript for details";
-
-  // Update the call record
   await supabase
     .from("calls")
     .update({
