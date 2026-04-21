@@ -4,7 +4,7 @@ import { AVAILABLE_CALL_PROVIDERS } from "@/lib/callTracking";
 import { getTrackingNumbers } from "@/lib/trackingNumbers";
 import TrackingNumberRow from "./TrackingNumberRow";
 
-export const revalidate = 30;
+export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
   const trackingNumbers = await getTrackingNumbers();
