@@ -6,8 +6,6 @@ import TrackingNumberRow from "./TrackingNumberRow";
 
 export const dynamic = "force-dynamic";
 
-const DEPLOY_MARKER = "DEPLOY-TEST-2026-04-21-A";
-
 export default async function SettingsPage() {
   const trackingNumbers = await getTrackingNumbers();
 
@@ -15,7 +13,6 @@ export default async function SettingsPage() {
     <>
       <Topbar title="Settings" subtitle="Integrations and account" />
       <main className="flex-1 p-4 md:p-8 space-y-6 max-w-3xl">
-        <div className="text-[10px] font-mono text-slate-400">build: {DEPLOY_MARKER}</div>
         <section className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
           <h3 className="font-semibold text-slate-900">Company</h3>
           <p className="text-xs text-slate-500 mt-0.5">Basic business details.</p>
