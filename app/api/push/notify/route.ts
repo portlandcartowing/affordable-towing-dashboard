@@ -3,8 +3,12 @@ import { supabase } from "@/lib/supabase";
 import webpush from "web-push";
 
 // ---------------------------------------------------------------------------
-// Send push notification to all available drivers. Called by the voice
-// webhook when a new call comes in.
+// Send push notifications to all available drivers when a call/message comes
+// in. Fans out to two destinations per driver:
+//   1. Web Push (VAPID) — dashboard PWA running in a browser
+//   2. Expo Push — native React Native driver app (Android/iOS)
+//
+// Called by the voice webhook on inbound call and by SMS flows.
 // ---------------------------------------------------------------------------
 
 const VAPID_PUBLIC = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
@@ -18,36 +22,48 @@ if (VAPID_PUBLIC && VAPID_PRIVATE) {
   );
 }
 
-export async function POST(req: NextRequest) {
-  const { caller_phone, source } = await req.json();
+type NotifyBody = {
+  caller_phone?: string | null;
+  source?: string | null;
+  call_id?: string | null;
+  type?: "incoming_call" | "message";
+  body?: string | null;
+};
 
-  // Get all available drivers with push subscriptions
+export async function POST(req: NextRequest) {
+  const payload: NotifyBody = await req.json();
+  const type = payload.type || "incoming_call";
+
   const { data: drivers } = await supabase
     .from("drivers")
-    .select("id, push_subscription")
-    .eq("status", "available")
-    .not("push_subscription", "is", null);
+    .select("id, push_subscription, expo_push_token")
+    .eq("status", "available");
 
   if (!drivers || drivers.length === 0) {
     return NextResponse.json({ ok: true, sent: 0 });
   }
 
-  const payload = JSON.stringify({
-    title: "Incoming Call — ACT Dispatch",
-    body: `${caller_phone || "Unknown"} · ${source || "unknown"} source`,
-    url: "/driver",
-  });
+  const title =
+    type === "incoming_call"
+      ? "📞 Incoming Call — ACT Dispatch"
+      : "New Message";
+  const body =
+    type === "incoming_call"
+      ? `${payload.caller_phone || "Unknown"} · ${payload.source || "unknown"} source`
+      : payload.body || `${payload.caller_phone || "New text"}`;
 
-  let sent = 0;
+  // --- Web Push fan-out (PWA dispatcher view) ---
+  const webPayload = JSON.stringify({ title, body, url: "/driver" });
+  let webSent = 0;
   for (const driver of drivers) {
+    if (!driver.push_subscription) continue;
     try {
       await webpush.sendNotification(
         driver.push_subscription as webpush.PushSubscription,
-        payload,
+        webPayload,
       );
-      sent++;
-    } catch (err) {
-      // Subscription expired — remove it
+      webSent++;
+    } catch {
       await supabase
         .from("drivers")
         .update({ push_subscription: null })
@@ -55,5 +71,44 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, sent });
+  // --- Expo Push fan-out (native driver app) ---
+  const channelId = type === "incoming_call" ? "incoming_call" : "messages";
+  const expoMessages = drivers
+    .filter((d) => !!d.expo_push_token)
+    .map((d) => ({
+      to: d.expo_push_token as string,
+      title,
+      body,
+      sound: "default",
+      priority: type === "incoming_call" ? "high" : "normal",
+      channelId,
+      data: {
+        type,
+        callId: payload.call_id,
+        callerPhone: payload.caller_phone,
+      },
+    }));
+
+  let expoSent = 0;
+  if (expoMessages.length > 0) {
+    try {
+      const resp = await fetch("https://exp.host/--/api/v2/push/send", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Accept-Encoding": "gzip, deflate",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(expoMessages),
+      });
+      if (resp.ok) expoSent = expoMessages.length;
+    } catch {
+      // best-effort
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    sent: { web: webSent, expo: expoSent },
+  });
 }

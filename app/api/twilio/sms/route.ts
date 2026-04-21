@@ -70,8 +70,11 @@ export async function POST(req: NextRequest) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        type: "message",
         caller_phone: from,
         source: "sms",
+        body: messageBody.slice(0, 100),
+        call_id: callId,
       }),
     });
   } catch {

@@ -106,11 +106,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Fire push notification to wake driver's phone (non-blocking)
+    // Fire push notification to wake driver's phone (non-blocking).
+    // Hits both Web Push (PWA) and Expo Push (native driver app).
     fetch(`${baseUrl}/api/push/notify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ caller_phone: callerPhone, source }),
+      body: JSON.stringify({
+        type: "incoming_call",
+        caller_phone: callerPhone,
+        source,
+        call_id: callRecord?.id ?? null,
+      }),
     }).catch(() => {});
 
     // Check if the call is an outbound VoIP call from a driver client
