@@ -3,6 +3,17 @@ import { supabase } from "@/lib/supabase";
 import { getTwilioClient, twilioNumber } from "@/lib/twilio";
 import { logError } from "@/lib/errorLog";
 
+async function fetchTwilioBalance(): Promise<number | null> {
+  try {
+    const sid = process.env.TWILIO_ACCOUNT_SID;
+    if (!sid) return null;
+    const bal = await getTwilioClient().api.v2010.accounts(sid).balance.fetch();
+    return parseFloat(bal.balance);
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Health Check Cron — runs every 5 min via Vercel Cron.
 //
@@ -18,6 +29,7 @@ const OWNER_CELL = process.env.SMS_FORWARD_NUMBER || "+15033888741";
 const ALERT_COOLDOWN_MIN = 30;
 const STUCK_CALL_THRESHOLD_MIN = 5;
 const ERROR_NOISE_THRESHOLD = 3; // unresolved errors/hour before alerting
+const TWILIO_LOW_BALANCE_USD = 5; // alert when account balance drops below this
 
 export async function GET(req: NextRequest) {
   // Vercel Cron calls with a signed header. In dev/manual hits, allow CRON_SECRET bearer.
@@ -34,7 +46,7 @@ export async function GET(req: NextRequest) {
   const oneHourAgo = new Date(Date.now() - 60 * 60_000).toISOString();
   const cooldownAgo = new Date(Date.now() - ALERT_COOLDOWN_MIN * 60_000).toISOString();
 
-  const [{ data: stuck }, { data: recentErrors }, { data: recentAlerts }] = await Promise.all([
+  const [{ data: stuck }, { data: recentErrors }, { data: recentAlerts }, twilioBalance] = await Promise.all([
     supabase
       .from("calls")
       .select("id, caller_phone, ai_summary, created_at")
@@ -53,6 +65,7 @@ export async function GET(req: NextRequest) {
       .eq("source", "health_alert")
       .gte("created_at", cooldownAgo)
       .limit(1),
+    fetchTwilioBalance(),
   ]);
 
   const problems: string[] = [];
@@ -70,6 +83,9 @@ export async function GET(req: NextRequest) {
       .map(([s, n]) => `${s}:${n}`)
       .join(", ");
     problems.push(`${recentErrors.length} unresolved errors/hr (${top})`);
+  }
+  if (twilioBalance !== null && twilioBalance < TWILIO_LOW_BALANCE_USD) {
+    problems.push(`Twilio balance $${twilioBalance.toFixed(2)} — add funds`);
   }
 
   // Nothing wrong OR still in cooldown from a previous alert
