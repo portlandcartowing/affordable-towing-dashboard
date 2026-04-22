@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { logError } from "@/lib/errorLog";
 
 // ---------------------------------------------------------------------------
 // Twilio Voice Webhook
@@ -184,6 +185,9 @@ export async function POST(req: NextRequest) {
       headers: { "Content-Type": "text/xml" },
     });
   } catch (err) {
+    await logError("twilio_voice", "Voice webhook threw — falling back to direct forward", {
+      error: String(err),
+    });
     const fallback = process.env.FORWARD_PHONE_NUMBER || "+15033888741";
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>

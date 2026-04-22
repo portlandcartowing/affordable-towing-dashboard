@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { transcribeRecording } from "@/lib/transcribe";
 import { processPostCall } from "@/lib/postCallProcessor";
+import { logError } from "@/lib/errorLog";
 
 // ---------------------------------------------------------------------------
 // Twilio Recording Status Callback
@@ -89,12 +90,20 @@ export async function POST(req: NextRequest) {
         await supabase.from("calls").update({
           ai_summary: "Transcription failed — recording available for playback",
         }).eq("id", callId);
+        await logError("deepgram", "Transcription returned null", {
+          call_id: callId,
+          recording_url: proxyRecordingUrl,
+        });
       }
     } catch (err) {
       console.error("Auto-transcription error:", err);
       await supabase.from("calls").update({
         ai_summary: "Transcription error — recording available for playback",
       }).eq("id", callId);
+      await logError("deepgram", "Auto-transcription threw exception", {
+        call_id: callId,
+        error: String(err),
+      });
     }
   }
 
