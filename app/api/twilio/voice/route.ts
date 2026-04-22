@@ -22,6 +22,22 @@ export async function POST(req: NextRequest) {
     const dialedNumber = (body.get("To") as string) || null;
     const callSid = (body.get("CallSid") as string) || null;
 
+    // Reject obvious test/probe traffic so it doesn't pollute the calls table.
+    // Twilio console validators, manual Postman hits, and common bot probes
+    // use well-known placeholder values. Real calls always have a real
+    // CallSid (starts with "CA") and a real E.164 caller.
+    const isTestTraffic =
+      callSid === "TEST" ||
+      callerPhone === "+15555555555" ||
+      callerPhone === "+10000000000" ||
+      (callSid != null && !callSid.startsWith("CA"));
+    if (isTestTraffic) {
+      return new NextResponse(
+        `<?xml version="1.0" encoding="UTF-8"?><Response><Reject/></Response>`,
+        { headers: { "Content-Type": "text/xml" } },
+      );
+    }
+
     // Route calls based on which Twilio number was dialed:
     // +15034611991 (Direct)    → +15033888741
     // +15034066323 (Ads)       → +15033888741
