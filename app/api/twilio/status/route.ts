@@ -78,13 +78,13 @@ export async function POST(req: NextRequest) {
         }).eq("id", callId);
 
         // Run AI post-call processor (summary + booking detection + auto-job)
-        const result = await processPostCall(callId, callerPhone, transcription.transcript);
+        const result = await processPostCall(callId, callerPhone, transcription.transcript, baseUrl);
 
         console.log("Post-call processing complete:", {
           callId,
-          booked: result.booking.isBooked,
-          price: result.booking.price,
+          classification: result.classification,
           jobCreated: result.autoJob?.created ?? false,
+          status: result.autoJob?.status ?? null,
         });
       } else {
         await supabase.from("calls").update({

@@ -26,7 +26,10 @@ type NotifyBody = {
   caller_phone?: string | null;
   source?: string | null;
   call_id?: string | null;
-  type?: "incoming_call" | "message";
+  job_id?: string | null;
+  price?: number | null;
+  pickup?: string | null;
+  type?: "incoming_call" | "message" | "job_booked";
   body?: string | null;
 };
 
@@ -43,14 +46,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, sent: 0 });
   }
 
-  const title =
-    type === "incoming_call"
-      ? "📞 Incoming Call — ACT Dispatch"
-      : "New Message";
-  const body =
-    type === "incoming_call"
-      ? `${payload.caller_phone || "Unknown"} · ${payload.source || "unknown"} source`
-      : payload.body || `${payload.caller_phone || "New text"}`;
+  let title: string;
+  let body: string;
+  if (type === "incoming_call") {
+    title = "📞 Incoming Call — ACT Dispatch";
+    body = `${payload.caller_phone || "Unknown"} · ${payload.source || "unknown"} source`;
+  } else if (type === "job_booked") {
+    const priceStr = payload.price ? ` · $${payload.price}` : "";
+    title = "✅ Job Booked";
+    body = `${payload.caller_phone || "New customer"}${priceStr}${payload.pickup ? ` · ${payload.pickup}` : ""}`;
+  } else {
+    title = "New Message";
+    body = payload.body || `${payload.caller_phone || "New text"}`;
+  }
 
   // --- Web Push fan-out (PWA dispatcher view) ---
   const webPayload = JSON.stringify({ title, body, url: "/driver" });
@@ -72,7 +80,10 @@ export async function POST(req: NextRequest) {
   }
 
   // --- Expo Push fan-out (native driver app) ---
-  const channelId = type === "incoming_call" ? "incoming_call" : "messages";
+  const channelId =
+    type === "incoming_call" ? "incoming_call"
+    : type === "job_booked"   ? "job_booked"
+    : "messages";
   const expoMessages = drivers
     .filter((d) => !!d.expo_push_token)
     .map((d) => ({
@@ -80,11 +91,12 @@ export async function POST(req: NextRequest) {
       title,
       body,
       sound: "default",
-      priority: type === "incoming_call" ? "high" : "normal",
+      priority: type === "incoming_call" || type === "job_booked" ? "high" : "normal",
       channelId,
       data: {
         type,
         callId: payload.call_id,
+        jobId: payload.job_id,
         callerPhone: payload.caller_phone,
       },
     }));
