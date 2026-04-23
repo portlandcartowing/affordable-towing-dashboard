@@ -16,6 +16,30 @@ export async function getLeadIdsWithJobs(): Promise<Set<string>> {
   return new Set(data.map((r) => r.lead_id as string));
 }
 
+/**
+ * For each lead_id, the most-recent linked job's id + status. Used by the
+ * Leads page to render inline Mark-Complete / Delete / Convert actions
+ * without an extra round-trip per row.
+ */
+export async function getJobsByLeadId(): Promise<
+  Record<string, { jobId: string; status: string }>
+> {
+  const { data, error } = await supabase
+    .from("jobs")
+    .select("id, lead_id, status, created_at")
+    .not("lead_id", "is", null)
+    .order("created_at", { ascending: false });
+  if (error || !data) return {};
+  const out: Record<string, { jobId: string; status: string }> = {};
+  for (const row of data) {
+    const leadId = row.lead_id as string;
+    if (!out[leadId]) {
+      out[leadId] = { jobId: row.id as string, status: row.status as string };
+    }
+  }
+  return out;
+}
+
 export async function getJobs(limit = 100): Promise<Job[]> {
   const { data, error } = await supabase
     .from("jobs")

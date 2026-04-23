@@ -2,10 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import CreateJobButton from "./CreateJobButton";
-import DeleteLeadButton from "./DeleteLeadButton";
 import EmptyState from "@/components/dashboard/EmptyState";
 import { updateLeadStatus } from "@/app/leads/actions";
+import EditableLeadField, { SERVICE_OPTIONS } from "./EditableLeadField";
+import EditableCustomerName from "@/components/calls/EditableCustomerName";
+import LeadJobActions from "./LeadJobActions";
 import type { Lead } from "@/lib/types";
 
 export type { Lead };
@@ -94,7 +95,9 @@ function LeadDetail({ lead, hasJob, onStatusChanged, callDisposition }: { lead: 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium">Customer</div>
-          <div className="mt-0.5 font-semibold text-slate-900">{lead.customer || "Unknown"}</div>
+          <div className="mt-0.5 font-semibold text-slate-900">
+            <EditableCustomerName phone={lead.phone} initialName={lead.customer} placeholder="Unknown" />
+          </div>
         </div>
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium">Phone</div>
@@ -106,11 +109,15 @@ function LeadDetail({ lead, hasJob, onStatusChanged, callDisposition }: { lead: 
         </div>
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium">Service</div>
-          <div className="mt-0.5 text-slate-700">{lead.service || "—"}</div>
+          <div className="mt-0.5 text-slate-700">
+            <EditableLeadField leadId={lead.id} field="service" initialValue={lead.service} variant="select" options={SERVICE_OPTIONS} />
+          </div>
         </div>
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium">City</div>
-          <div className="mt-0.5 text-slate-700">{lead.city || "—"}</div>
+          <div className="mt-0.5 text-slate-700">
+            <EditableLeadField leadId={lead.id} field="city" initialValue={lead.city} variant="text" />
+          </div>
         </div>
       </div>
 
@@ -125,7 +132,15 @@ function LeadDetail({ lead, hasJob, onStatusChanged, callDisposition }: { lead: 
         </div>
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium">Price</div>
-          <div className="mt-0.5 font-semibold text-slate-900">{formatPrice(lead.price)}</div>
+          <div className="mt-0.5 font-semibold text-slate-900">
+            <EditableLeadField
+              leadId={lead.id}
+              field="price"
+              initialValue={lead.price}
+              variant="number"
+              displayAs={(v) => (v != null ? formatPrice(Number(v)) : "—")}
+            />
+          </div>
         </div>
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium mb-1">Status</div>
@@ -164,10 +179,12 @@ export default function LeadsTable({
   leads,
   leadIdsWithJobs: leadIdsArr,
   callDispositions = {},
+  jobsByLead = {},
 }: {
   leads: Lead[];
   leadIdsWithJobs: string[];
   callDispositions?: Record<string, string>;
+  jobsByLead?: Record<string, { jobId: string; status: string }>;
 }) {
   const router = useRouter();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -208,8 +225,8 @@ export default function LeadsTable({
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="font-semibold text-slate-900 truncate">
-                      {lead.customer || "Unknown"}
+                    <div className="font-semibold text-slate-900 truncate" onClick={(e) => e.stopPropagation()}>
+                      <EditableCustomerName phone={lead.phone} initialName={lead.customer} placeholder="Unknown" />
                     </div>
                     <div className="text-sm text-slate-500 truncate">
                       {lead.service || "—"} · {lead.city || "—"}
@@ -227,15 +244,12 @@ export default function LeadsTable({
               {isOpen && (
                 <>
                   <LeadDetail lead={lead} hasJob={hasJob} onStatusChanged={handleStatusChanged} callDisposition={lead.call_id ? callDispositions[lead.call_id] : null} />
-                  <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
-                      <DeleteLeadButton leadId={lead.id} />
-                    </div>
-                    <CreateJobButton
+                  <div className="px-4 py-3 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
+                    <LeadJobActions
                       leadId={lead.id}
-                      hasJob={hasJob}
+                      jobId={jobsByLead[lead.id]?.jobId ?? null}
+                      jobStatus={jobsByLead[lead.id]?.status ?? null}
                       booked={!!lead.booked}
-                      size="md"
                     />
                   </div>
                 </>
@@ -276,12 +290,18 @@ export default function LeadsTable({
                     <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
                       {formatTime(lead.created_at)}
                     </td>
-                    <td className="px-4 py-3 font-medium text-slate-900">{lead.customer || "—"}</td>
+                    <td className="px-4 py-3 font-medium text-slate-900" onClick={(e) => e.stopPropagation()}>
+                      <EditableCustomerName phone={lead.phone} initialName={lead.customer} placeholder="—" />
+                    </td>
                     <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
                       {lead.phone || "—"}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{lead.service || "—"}</td>
-                    <td className="px-4 py-3 text-slate-600">{lead.city || "—"}</td>
+                    <td className="px-4 py-3 text-slate-600" onClick={(e) => e.stopPropagation()}>
+                      <EditableLeadField leadId={lead.id} field="service" initialValue={lead.service} variant="select" options={SERVICE_OPTIONS} />
+                    </td>
+                    <td className="px-4 py-3 text-slate-600" onClick={(e) => e.stopPropagation()}>
+                      <EditableLeadField leadId={lead.id} field="city" initialValue={lead.city} variant="text" />
+                    </td>
                     <td className="px-4 py-3">
                       <span className="px-2 py-1 text-xs rounded-full bg-blue-50 text-blue-700">
                         {lead.source || "—"}
@@ -290,18 +310,22 @@ export default function LeadsTable({
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       <LeadStatusChanger lead={lead} onChanged={handleStatusChanged} callDisposition={lead.call_id ? callDispositions[lead.call_id] : null} />
                     </td>
-                    <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">
-                      {formatPrice(lead.price)}
+                    <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                      <EditableLeadField
+                        leadId={lead.id}
+                        field="price"
+                        initialValue={lead.price}
+                        variant="number"
+                        displayAs={(v) => (v != null ? formatPrice(Number(v)) : "—")}
+                      />
                     </td>
                     <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center justify-end gap-2">
-                        <DeleteLeadButton leadId={lead.id} />
-                        <CreateJobButton
-                          leadId={lead.id}
-                          hasJob={hasJob}
-                          booked={!!lead.booked}
-                        />
-                      </div>
+                      <LeadJobActions
+                        leadId={lead.id}
+                        jobId={jobsByLead[lead.id]?.jobId ?? null}
+                        jobStatus={jobsByLead[lead.id]?.status ?? null}
+                        booked={!!lead.booked}
+                      />
                     </td>
                   </tr>
                   {isOpen && (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { updateCustomerNameByPhone } from "@/app/calls/actions";
 
 export default function EditableCustomerName({
@@ -8,11 +9,13 @@ export default function EditableCustomerName({
   initialName,
   placeholder = "Unknown",
   className = "",
+  linkToProfile = true,
 }: {
   phone: string | null;
   initialName: string | null;
   placeholder?: string;
   className?: string;
+  linkToProfile?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState<string>(initialName ?? "");
@@ -44,25 +47,46 @@ export default function EditableCustomerName({
   };
 
   if (!editing) {
+    const display = name || <span className="text-slate-400">{placeholder}</span>;
+    const profileHref = `/customers/${encodeURIComponent(phone)}`;
     return (
-      <span
-        role="button"
-        tabIndex={0}
-        onClick={(e) => {
-          e.stopPropagation();
-          setEditing(true);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
+      <span className="inline-flex items-center gap-1.5">
+        {linkToProfile ? (
+          <Link
+            href={profileHref}
+            onClick={(e) => e.stopPropagation()}
+            className={`${className} hover:text-blue-600 hover:underline transition-colors`}
+            title="Open customer profile"
+          >
+            {display}
+          </Link>
+        ) : (
+          <span className={className}>{display}</span>
+        )}
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
             e.stopPropagation();
+            e.preventDefault();
             setEditing(true);
-          }
-        }}
-        className={`${className} cursor-pointer hover:text-blue-600 hover:underline decoration-dotted underline-offset-2 transition-colors`}
-        title="Click to edit name (applies to all calls from this number)"
-      >
-        {name || <span className="text-slate-400">{placeholder}</span>}
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              setEditing(true);
+            }
+          }}
+          className="cursor-pointer text-slate-300 hover:text-blue-600 transition-colors leading-none"
+          title="Edit name"
+          aria-label="Edit customer name"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+          </svg>
+        </span>
       </span>
     );
   }

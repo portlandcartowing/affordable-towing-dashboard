@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import DeleteJobButton from "./DeleteJobButton";
 import EditablePrice from "./EditablePrice";
+import EditableAddress from "./EditableAddress";
 import EmptyState from "@/components/dashboard/EmptyState";
 import { updateJobStatus } from "@/app/jobs/jobActions";
 import type { Job, JobStatus } from "@/lib/types";
@@ -180,16 +181,32 @@ function JobDetail({ job, onStatusChanged }: { job: Job; onStatusChanged?: () =>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium mb-1">Pickup Address</div>
-          <div className="text-slate-700 bg-white rounded-lg px-3 py-2 ring-1 ring-slate-200/70 flex items-start gap-2">
-            <span className="text-slate-400 shrink-0 mt-0.5">◉</span>
-            <span>{pickupFull || "TBD"}</span>
+          <div className="text-slate-700 bg-white rounded-lg px-3 py-2 ring-1 ring-slate-200/70">
+            <EditableAddress
+              jobId={job.id}
+              which="pickup"
+              initial={{
+                address: job.pickup_address,
+                city: job.pickup_city,
+                state: job.pickup_state,
+                zip: job.pickup_zip,
+              }}
+            />
           </div>
         </div>
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium mb-1">Dropoff Address</div>
-          <div className="text-slate-700 bg-white rounded-lg px-3 py-2 ring-1 ring-slate-200/70 flex items-start gap-2">
-            <span className="text-slate-400 shrink-0 mt-0.5">➤</span>
-            <span>{dropoffFull || "TBD"}</span>
+          <div className="text-slate-700 bg-white rounded-lg px-3 py-2 ring-1 ring-slate-200/70">
+            <EditableAddress
+              jobId={job.id}
+              which="dropoff"
+              initial={{
+                address: job.dropoff_address,
+                city: job.dropoff_city,
+                state: job.dropoff_state,
+                zip: job.dropoff_zip,
+              }}
+            />
           </div>
         </div>
       </div>

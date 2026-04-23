@@ -6,12 +6,11 @@ import EmptyState from "@/components/dashboard/EmptyState";
 import CreateLeadButton from "./CreateLeadButton";
 import DeleteCallButton from "./DeleteCallButton";
 import BulkDeleteButton from "./BulkDeleteButton";
-import { updateCallDisposition } from "@/app/calls/actions";
 import type { Call, CallDisposition } from "@/lib/types";
-import { CALL_DISPOSITIONS } from "@/lib/types";
 import AudioPlayer from "./AudioPlayer";
 import CollapsibleTranscript from "./CollapsibleTranscript";
 import EditableCustomerName from "./EditableCustomerName";
+import DispositionChanger from "./DispositionChanger";
 import MessagesPanel from "@/app/call-center/components/MessagesPanel";
 
 function formatTime(iso: string | null) {
@@ -75,59 +74,6 @@ function sortCalls(calls: Call[], key: SortKey, dir: SortDir): Call[] {
 }
 
 // ---------------------------------------------------------------------------
-// Disposition changer dropdown
-// ---------------------------------------------------------------------------
-function DispositionChanger({ call, onChanged }: { call: Call; onChanged?: () => void }) {
-  const [localValue, setLocalValue] = useState<string>(call.disposition || "");
-  const [isPending, startTransition] = useTransition();
-  const [toast, setToast] = useState<string | null>(null);
-
-  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const val = e.target.value;
-    const newDisp = val === "" ? null : (val as CallDisposition);
-    if (val === localValue) return;
-
-    setLocalValue(val);
-
-    startTransition(async () => {
-      const result = await updateCallDisposition(call.id, newDisp);
-      if (result.ok) {
-        setToast(`Changed to ${newDisp || "none"}`);
-        setTimeout(() => setToast(null), 2000);
-        onChanged?.();
-      } else {
-        setLocalValue(call.disposition || "");
-        setToast("Failed to update");
-        setTimeout(() => setToast(null), 2000);
-      }
-    });
-  };
-
-  return (
-    <div className="relative" onClick={(e) => e.stopPropagation()}>
-      <select
-        value={localValue}
-        onChange={handleChange}
-        disabled={isPending}
-        className="text-sm font-medium rounded-lg px-2 py-1.5 ring-1 ring-slate-200 bg-white hover:ring-blue-300 focus:ring-blue-400 focus:outline-none disabled:opacity-50 cursor-pointer"
-      >
-        <option value="">— None —</option>
-        {CALL_DISPOSITIONS.map((d) => (
-          <option key={d} value={d}>
-            {d.charAt(0).toUpperCase() + d.slice(1)}
-          </option>
-        ))}
-      </select>
-      {toast && (
-        <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2 text-xs text-emerald-600 font-medium whitespace-nowrap">
-          {toast}
-        </span>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // CallDetail — expanded panel
 // ---------------------------------------------------------------------------
 function CallDetail({ call, leadName = null, onDispositionChanged }: { call: Call; leadName?: string | null; onDispositionChanged?: () => void }) {
@@ -142,7 +88,7 @@ function CallDetail({ call, leadName = null, onDispositionChanged }: { call: Cal
         </div>
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium mb-1">Disposition</div>
-          <DispositionChanger call={call} onChanged={onDispositionChanged} />
+          <DispositionChanger callId={call.id} initialValue={call.disposition} onChanged={onDispositionChanged} />
         </div>
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium">Quoted Price</div>
@@ -292,7 +238,7 @@ export default function CallsTable({
                       <div className="text-[11px] text-slate-400 mt-0.5">{formatTime(call.started_at || call.created_at)}</div>
                     </div>
                     <div onClick={(e) => e.stopPropagation()}>
-                      <DispositionChanger call={call} onChanged={handleDispositionChanged} />
+                      <DispositionChanger callId={call.id} initialValue={call.disposition} onChanged={handleDispositionChanged} />
                     </div>
                   </div>
                   <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
@@ -365,7 +311,7 @@ export default function CallsTable({
                       </td>
                       <td className="px-3 py-2.5" onClick={() => toggle(call.id)}><span className="px-2 py-0.5 text-[10px] rounded-full bg-blue-50 text-blue-700 font-medium">{call.source || "?"}</span></td>
                       <td className="px-3 py-2.5 text-slate-600 text-xs whitespace-nowrap tabular-nums" onClick={() => toggle(call.id)}>{formatDuration(call.duration_seconds)}</td>
-                      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}><DispositionChanger call={call} onChanged={handleDispositionChanged} /></td>
+                      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}><DispositionChanger callId={call.id} initialValue={call.disposition} onChanged={handleDispositionChanged} /></td>
                       <td className="px-3 py-2.5 text-slate-500 text-xs truncate" onClick={() => toggle(call.id)}>{truncate(call.transcript, 40)}</td>
                       <td className="px-3 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-2">

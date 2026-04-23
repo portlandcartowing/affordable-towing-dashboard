@@ -2,14 +2,15 @@ import Topbar from "@/components/dashboard/Topbar";
 import LeadsTable, { Lead } from "@/components/leads/LeadsTable";
 import AddLeadModal from "@/components/leads/AddLeadModal";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
-import { getLeadIdsWithJobs } from "@/lib/jobsQueries";
+import { getLeadIdsWithJobs, getJobsByLeadId } from "@/lib/jobsQueries";
 
 export const revalidate = 15;
 
 export default async function LeadsPage() {
-  const [{ data, error }, leadIdsWithJobs] = await Promise.all([
+  const [{ data, error }, leadIdsWithJobs, jobsByLead] = await Promise.all([
     supabase.from("leads").select("*").order("created_at", { ascending: false }),
     getLeadIdsWithJobs(),
+    getJobsByLeadId(),
   ]);
 
   const leads: Lead[] = data ?? [];
@@ -51,7 +52,7 @@ export default async function LeadsPage() {
           </div>
         )}
 
-        <LeadsTable leads={leads} leadIdsWithJobs={[...leadIdsWithJobs]} callDispositions={callDispositions} />
+        <LeadsTable leads={leads} leadIdsWithJobs={[...leadIdsWithJobs]} callDispositions={callDispositions} jobsByLead={jobsByLead} />
       </main>
     </>
   );

@@ -38,6 +38,57 @@ export async function toggleLeadBooked(id: string, booked: boolean) {
 }
 
 /**
+ * Inline-edit a single field on a lead row. Whitelisted to the columns
+ * dispatchers are allowed to adjust. Also propagates service/city/price
+ * to the linked job (if any) so the Jobs page stays in sync.
+ */
+export async function updateLeadField(
+  leadId: string,
+  field: "service" | "city" | "source" | "price",
+  value: string | number | null,
+) {
+  let cleanValue: string | number | null;
+  if (field === "price") {
+    if (value === null || value === "" || value === undefined) cleanValue = null;
+    else {
+      const n = typeof value === "number" ? value : Number(value);
+      if (Number.isNaN(n) || n < 0 || n > 20000) {
+        return { ok: false as const, error: "Enter 0–20000" };
+      }
+      cleanValue = Math.round(n * 100) / 100;
+    }
+  } else {
+    const s = typeof value === "string" ? value.trim() : "";
+    cleanValue = s.length > 0 ? s : null;
+  }
+
+  const { error } = await supabase
+    .from("leads")
+    .update({ [field]: cleanValue })
+    .eq("id", leadId);
+  if (error) return { ok: false as const, error: error.message };
+
+  // Mirror mutable fields onto the linked job so dispatch-facing views match.
+  const jobMirror: Record<string, unknown> = {};
+  if (field === "service") {
+    // jobs table doesn't have a service column, so skip — field lives on lead only.
+  } else if (field === "city") {
+    jobMirror.pickup_city = cleanValue;
+  } else if (field === "price") {
+    jobMirror.price = cleanValue;
+  }
+  if (Object.keys(jobMirror).length > 0) {
+    await supabase.from("jobs").update(jobMirror).eq("lead_id", leadId);
+  }
+
+  revalidatePath("/leads");
+  revalidatePath("/jobs");
+  revalidatePath("/dashboard");
+  revalidatePath("/call-center");
+  return { ok: true as const };
+}
+
+/**
  * Update a lead's status and sync across calls + jobs.
  * Uses the same status values as call dispositions so everything matches.
  */
