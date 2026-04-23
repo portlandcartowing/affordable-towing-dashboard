@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { parseTranscript } from "@/lib/transcriptParser";
+import { tryAutoFillDropoff } from "@/lib/dropoffAutoFill";
 
 // ---------------------------------------------------------------------------
 // Twilio SMS Webhook — fires on every inbound text to your Twilio number.
@@ -71,9 +72,22 @@ export async function POST(req: NextRequest) {
     status: "received",
   });
 
+  // 3.5 If this phone has an open dropoff request from a Tow job, try to
+  //     auto-fill the dropoff address from this message. Runs Claude to
+  //     extract a clean address. Sets price via calculateAndPersistJobFee
+  //     and fires a driver push notification when successful.
+  const baseUrlForAuto = `https://${req.headers.get("host")}`;
+  const autoFill = await tryAutoFillDropoff({
+    fromPhone: from,
+    body: messageBody,
+    baseUrl: baseUrlForAuto,
+  }).catch(() => null);
+
   // 4. Check for proposal acceptance ("yes", "accept", "book it", etc.)
   let replyText = "";
-  if (isAcceptanceReply(messageBody)) {
+  if (autoFill?.filled) {
+    replyText = "Got it — driver has your drop-off location. We'll text once the tow is complete.";
+  } else if (isAcceptanceReply(messageBody)) {
     const accepted = await tryAcceptProposal(from);
     if (accepted) {
       replyText = "Your job is confirmed! A driver is being dispatched now. We'll text you with updates.";
