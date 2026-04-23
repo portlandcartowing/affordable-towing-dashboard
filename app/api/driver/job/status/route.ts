@@ -14,6 +14,7 @@ import { logError } from "@/lib/errorLog";
 // ---------------------------------------------------------------------------
 
 const PUBLIC_ORIGIN = process.env.NEXT_PUBLIC_APP_URL || "https://affordable-towing-dashboard.vercel.app";
+const REVIEW_URL = process.env.GOOGLE_REVIEW_URL || "";
 
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get("authorization") || "";
@@ -31,15 +32,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Invalid session" }, { status: 401 });
   }
 
-  const { jobId, status } = await req.json();
+  const { jobId, status, finalAmount, completionNotes } = await req.json();
   if (!jobId || !status) {
     return NextResponse.json({ ok: false, error: "Missing jobId/status" }, { status: 400 });
+  }
+
+  // Completion requires a confirmed final amount — this is the gate.
+  if (status === "completed") {
+    const n = Number(finalAmount);
+    if (!Number.isFinite(n) || n <= 0) {
+      return NextResponse.json(
+        { ok: false, error: "Final amount is required to complete a job" },
+        { status: 400 },
+      );
+    }
   }
 
   // Load job so we can decide on side effects
   const { data: job, error: jobErr } = await supabase
     .from("jobs")
-    .select("id, status, phone, tracking_token, customer")
+    .select("id, status, phone, tracking_token, customer, photos_after")
     .eq("id", jobId)
     .single();
 
@@ -59,12 +71,64 @@ export async function POST(req: NextRequest) {
   }
   if (status === "completed") {
     update.completed_at = new Date().toISOString();
+    update.final_amount = Number(finalAmount);
+    if (typeof completionNotes === "string" && completionNotes.trim()) {
+      update.completion_notes = completionNotes.trim();
+    }
+    update.price = Number(finalAmount); // Keep canonical `price` in sync with final total
   }
 
   const { error: updErr } = await supabase.from("jobs").update(update).eq("id", jobId);
   if (updErr) {
     await logError("sms_send", "Failed to update job status", { jobId, status, error: updErr.message });
     return NextResponse.json({ ok: false, error: updErr.message }, { status: 500 });
+  }
+
+  // Completion SMS: final amount + review link + (photo link if photos exist)
+  if (status === "completed" && job.phone) {
+    const firstName = (job.customer || "").split(/\s+/)[0] || "";
+    const greeting = firstName ? `Hi ${firstName}, ` : "";
+    const total = Number(finalAmount).toFixed(0);
+    const photosArr = Array.isArray(job.photos_after) ? (job.photos_after as unknown[]) : [];
+    const hasPhotos = photosArr.length > 0;
+
+    const lines = [
+      `${greeting}your ACT Dispatch service is complete. Final total: $${total}.`,
+    ];
+    if (hasPhotos) {
+      lines.push(`View photos: ${PUBLIC_ORIGIN}/track/${job.tracking_token}`);
+    }
+    if (REVIEW_URL) {
+      lines.push(`If we saved the day, a quick Google review helps us out: ${REVIEW_URL}`);
+    }
+    lines.push(`Thanks for choosing ACT Dispatch!`);
+    const body = lines.join("\n\n");
+
+    try {
+      await getTwilioClient().messages.create({
+        to: job.phone,
+        from: twilioNumber,
+        body,
+      });
+      await supabase.from("messages").insert({
+        direction: "outbound",
+        from_number: twilioNumber,
+        to_number: job.phone,
+        body,
+        job_id: jobId,
+        status: "sent",
+      });
+      await supabase
+        .from("jobs")
+        .update({ review_sms_sent_at: new Date().toISOString() })
+        .eq("id", jobId);
+    } catch (err) {
+      await logError("sms_send", "Failed to send completion SMS", {
+        jobId,
+        phone: job.phone,
+        error: String(err),
+      });
+    }
   }
 
   // Send tracking SMS (fire-and-forget — don't block status update on SMS failure)
