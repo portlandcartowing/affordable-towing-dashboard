@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { supabaseAdmin as supabase } from "./supabaseAdmin";
 import type { Proposal } from "./types";
 
 /**

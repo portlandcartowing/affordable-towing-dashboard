@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { parseTranscript } from "@/lib/transcriptParser";
 
 const revalidateAll = () => {
@@ -11,6 +11,28 @@ const revalidateAll = () => {
   revalidatePath("/jobs");
   revalidatePath("/dashboard");
 };
+
+/**
+ * Update the customer name across every lead + job row that shares this
+ * phone number. Phone = customer identity, so one edit propagates to all
+ * past and future records for that caller.
+ */
+export async function updateCustomerNameByPhone(phone: string, name: string) {
+  const trimmed = name.trim();
+  const value = trimmed.length > 0 ? trimmed : null;
+  if (!phone) return { ok: false as const, error: "Phone required" };
+
+  const { error: leadsErr } = await supabase
+    .from("leads")
+    .update({ customer: value })
+    .eq("phone", phone);
+  if (leadsErr) return { ok: false as const, error: leadsErr.message };
+
+  await supabase.from("jobs").update({ customer: value }).eq("phone", phone);
+
+  revalidateAll();
+  return { ok: true as const };
+}
 
 /**
  * One-tap lead creation from an inbound call.

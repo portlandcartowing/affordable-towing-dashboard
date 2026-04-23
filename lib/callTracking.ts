@@ -10,7 +10,7 @@
 // that logic will live.
 // ---------------------------------------------------------------------------
 
-import { supabase } from "./supabase";
+import { supabaseAdmin as supabase } from "./supabaseAdmin";
 import type { Call } from "./types";
 
 export type CallTrackingProvider = "callrail" | "twilio" | "manual" | "other";

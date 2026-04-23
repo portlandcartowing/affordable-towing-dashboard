@@ -1,7 +1,7 @@
 import Topbar from "@/components/dashboard/Topbar";
 import SectionHeader from "@/components/dashboard/SectionHeader";
 import DisputesPanel from "./DisputesPanel";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
 export const revalidate = 15;
 

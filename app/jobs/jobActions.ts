@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import type { JobStatus } from "@/lib/types";
 
 const revalidateAll = () => {
@@ -68,4 +68,28 @@ export async function updateJobStatus(jobId: string, status: JobStatus) {
 
   revalidateAll();
   return { ok: true };
+}
+
+// Update the customer-facing price on a booked job. Also syncs the
+// linked lead's price so the Revenue dashboard KPI reflects the new
+// total. Drivers will adjust this once the vehicle is hooked up and
+// the real mileage is known (base + per-mile).
+export async function updateJobPrice(jobId: string, price: number | null) {
+  const clean = price == null || Number.isNaN(price) ? null : Math.round(price * 100) / 100;
+
+  const { data: job, error } = await supabase
+    .from("jobs")
+    .update({ price: clean })
+    .eq("id", jobId)
+    .select("lead_id")
+    .single();
+
+  if (error) return { ok: false as const, error: error.message };
+
+  if (job?.lead_id) {
+    await supabase.from("leads").update({ price: clean }).eq("id", job.lead_id);
+  }
+
+  revalidateAll();
+  return { ok: true as const };
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
 // ---------------------------------------------------------------------------
 // Push subscription endpoint. The driver app sends its push subscription

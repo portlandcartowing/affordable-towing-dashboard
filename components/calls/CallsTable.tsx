@@ -11,6 +11,7 @@ import type { Call, CallDisposition } from "@/lib/types";
 import { CALL_DISPOSITIONS } from "@/lib/types";
 import AudioPlayer from "./AudioPlayer";
 import CollapsibleTranscript from "./CollapsibleTranscript";
+import EditableCustomerName from "./EditableCustomerName";
 import MessagesPanel from "@/app/call-center/components/MessagesPanel";
 
 function formatTime(iso: string | null) {
@@ -129,10 +130,16 @@ function DispositionChanger({ call, onChanged }: { call: Call; onChanged?: () =>
 // ---------------------------------------------------------------------------
 // CallDetail — expanded panel
 // ---------------------------------------------------------------------------
-function CallDetail({ call, onDispositionChanged }: { call: Call; onDispositionChanged?: () => void }) {
+function CallDetail({ call, leadName = null, onDispositionChanged }: { call: Call; leadName?: string | null; onDispositionChanged?: () => void }) {
   return (
     <div className="px-5 py-4 bg-slate-50/60 space-y-4 text-sm border-t border-slate-100">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium mb-1">Customer</div>
+          <div className="font-semibold text-slate-900">
+            <EditableCustomerName phone={call.caller_phone} initialName={leadName} placeholder="Unknown" />
+          </div>
+        </div>
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium mb-1">Disposition</div>
           <DispositionChanger call={call} onChanged={onDispositionChanged} />
@@ -276,9 +283,12 @@ export default function CallsTable({
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <span className="font-semibold text-blue-600 truncate block">{call.caller_phone || "Unknown"}</span>
-                      {call.lead_id && leadNames[call.lead_id] && (
-                        <div className="text-xs text-slate-900 font-medium truncate">{leadNames[call.lead_id]}</div>
-                      )}
+                      <div className="text-xs text-slate-900 font-medium truncate" onClick={(e) => e.stopPropagation()}>
+                        <EditableCustomerName
+                          phone={call.caller_phone}
+                          initialName={(call.lead_id && leadNames[call.lead_id]) || null}
+                        />
+                      </div>
                       <div className="text-[11px] text-slate-400 mt-0.5">{formatTime(call.started_at || call.created_at)}</div>
                     </div>
                     <div onClick={(e) => e.stopPropagation()}>
@@ -296,7 +306,11 @@ export default function CallsTable({
               </div>
               {isOpen && (
                 <>
-                  <CallDetail call={call} onDispositionChanged={handleDispositionChanged} />
+                  <CallDetail
+                    call={call}
+                    leadName={(call.lead_id && leadNames[call.lead_id]) || null}
+                    onDispositionChanged={handleDispositionChanged}
+                  />
                   <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between">
                     <DeleteCallButton callId={call.id} />
                     <LinkStatus call={call} leadHasJob={leadHasJob} />
@@ -342,7 +356,13 @@ export default function CallsTable({
                       </td>
                       <td className="px-3 py-2.5 text-slate-500 text-xs whitespace-nowrap" onClick={() => toggle(call.id)}>{formatTime(call.started_at || call.created_at)}</td>
                       <td className="px-3 py-2.5 font-medium text-xs whitespace-nowrap" onClick={() => toggle(call.id)}><span className="text-blue-600">{call.caller_phone || "—"}</span></td>
-                      <td className="px-3 py-2.5 text-slate-900 text-xs" onClick={() => toggle(call.id)}>{(call.lead_id && leadNames[call.lead_id]) || "—"}</td>
+                      <td className="px-3 py-2.5 text-slate-900 text-xs" onClick={(e) => e.stopPropagation()}>
+                        <EditableCustomerName
+                          phone={call.caller_phone}
+                          initialName={(call.lead_id && leadNames[call.lead_id]) || null}
+                          placeholder="—"
+                        />
+                      </td>
                       <td className="px-3 py-2.5" onClick={() => toggle(call.id)}><span className="px-2 py-0.5 text-[10px] rounded-full bg-blue-50 text-blue-700 font-medium">{call.source || "?"}</span></td>
                       <td className="px-3 py-2.5 text-slate-600 text-xs whitespace-nowrap tabular-nums" onClick={() => toggle(call.id)}>{formatDuration(call.duration_seconds)}</td>
                       <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}><DispositionChanger call={call} onChanged={handleDispositionChanged} /></td>
@@ -355,7 +375,13 @@ export default function CallsTable({
                       </td>
                     </tr>
                     {isOpen && (
-                      <tr key={`${call.id}-detail`}><td colSpan={9} className="p-0" onClick={(e) => e.stopPropagation()}><CallDetail call={call} onDispositionChanged={handleDispositionChanged} /></td></tr>
+                      <tr key={`${call.id}-detail`}><td colSpan={9} className="p-0" onClick={(e) => e.stopPropagation()}>
+                        <CallDetail
+                          call={call}
+                          leadName={(call.lead_id && leadNames[call.lead_id]) || null}
+                          onDispositionChanged={handleDispositionChanged}
+                        />
+                      </td></tr>
                     )}
                   </React.Fragment>
                 );

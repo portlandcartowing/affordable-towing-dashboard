@@ -1,6 +1,6 @@
 import Topbar from "@/components/dashboard/Topbar";
 import CallCenterClient from "./CallCenterClient";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { mapCallToCallCenter } from "./mapCall";
 import { startOfToday } from "@/lib/queries";
 

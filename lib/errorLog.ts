@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { supabaseAdmin as supabase } from "./supabaseAdmin";
 
 // ---------------------------------------------------------------------------
 // Persistent error log — every failure we care about gets written to the

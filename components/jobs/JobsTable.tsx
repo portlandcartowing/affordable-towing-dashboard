@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import DeleteJobButton from "./DeleteJobButton";
+import EditablePrice from "./EditablePrice";
 import EmptyState from "@/components/dashboard/EmptyState";
 import { updateJobStatus } from "@/app/jobs/jobActions";
 import type { Job, JobStatus } from "@/lib/types";
@@ -197,7 +198,9 @@ function JobDetail({ job, onStatusChanged }: { job: Job; onStatusChanged?: () =>
       <div className="grid grid-cols-3 gap-4">
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium">Price</div>
-          <div className="mt-0.5 text-lg font-bold text-slate-900">{job.price != null ? money(job.price) : "—"}</div>
+          <div className="mt-0.5">
+            <EditablePrice jobId={job.id} initialPrice={job.price} size="lg" />
+          </div>
         </div>
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium">Driver Pay</div>
@@ -295,9 +298,7 @@ export default function JobsTable({ jobs }: { jobs: Job[] }) {
                 <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between">
                   <div>
                     <div className="text-[10px] uppercase text-slate-400">Price</div>
-                    <div className="font-semibold text-slate-900">
-                      {job.price != null ? money(job.price) : "—"}
-                    </div>
+                    <EditablePrice jobId={job.id} initialPrice={job.price} size="sm" />
                   </div>
                   <div>
                     <div className="text-[10px] uppercase text-slate-400">Driver Pay</div>
@@ -366,8 +367,8 @@ export default function JobsTable({ jobs }: { jobs: Job[] }) {
                     <td className="px-4 py-3 text-right text-slate-600">
                       {job.distance_miles ?? "—"}
                     </td>
-                    <td className="px-4 py-3 text-right font-medium text-slate-900">
-                      {job.price != null ? money(job.price) : "—"}
+                    <td className="px-4 py-3 text-right">
+                      <EditablePrice jobId={job.id} initialPrice={job.price} size="md" />
                     </td>
                     <td className="px-4 py-3 text-right text-slate-600">
                       {job.driver_pay != null ? money(job.driver_pay) : "—"}

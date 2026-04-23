@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { supabaseAdmin as supabase } from "./supabaseAdmin";
 import { startOfToday } from "./queries";
 import type { Job } from "./types";
 

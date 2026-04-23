@@ -1,7 +1,7 @@
 import Topbar from "@/components/dashboard/Topbar";
 import LeadsTable, { Lead } from "@/components/leads/LeadsTable";
 import AddLeadModal from "@/components/leads/AddLeadModal";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { getLeadIdsWithJobs } from "@/lib/jobsQueries";
 
 export const revalidate = 15;

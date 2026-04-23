@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
 // Debug endpoint — shows what the webhook would dial
 // Hit /api/twilio/debug in your browser to see the driver IDs

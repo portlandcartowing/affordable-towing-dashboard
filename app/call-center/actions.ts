@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { getTwilioClient, twilioNumber } from "@/lib/twilio";
 import { createProposal } from "@/lib/proposals";
 import type { LostReason } from "@/lib/types";

@@ -5,7 +5,7 @@ import CallsTable from "@/components/calls/CallsTable";
 import { getCalls, summarizeCalls } from "@/lib/callTracking";
 import { getLeadIdsWithJobs } from "@/lib/jobsQueries";
 import { startOfToday, startOfWeek } from "@/lib/queries";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
 export const revalidate = 15;
 

@@ -14,7 +14,7 @@
 // ---------------------------------------------------------------------------
 
 import Anthropic from "@anthropic-ai/sdk";
-import { supabase } from "./supabase";
+import { supabaseAdmin as supabase } from "./supabaseAdmin";
 import { parseTranscript } from "./transcriptParser";
 
 // ---------------------------------------------------------------------------
@@ -327,10 +327,26 @@ async function autoCreateJob(
     }
   }
 
+  // Inherit customer name from any prior lead with this phone. Phone
+  // number = customer identity: once we've captured "Kevin" once, every
+  // future call from that number stays as Kevin (unless manually edited).
+  let customerName = data.customer_name;
+  if (callerPhone && !customerName) {
+    const { data: priorLead } = await supabase
+      .from("leads")
+      .select("customer")
+      .eq("phone", callerPhone)
+      .not("customer", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (priorLead?.customer) customerName = priorLead.customer;
+  }
+
   const { data: lead, error: leadErr } = await supabase
     .from("leads")
     .insert({
-      customer: data.customer_name,
+      customer: customerName,
       phone: callerPhone,
       service: data.service_type,
       city: data.pickup_city,
@@ -353,7 +369,7 @@ async function autoCreateJob(
     .insert({
       lead_id: lead.id,
       status,
-      customer: data.customer_name,
+      customer: customerName,
       phone: callerPhone,
       vehicle_year: data.vehicle_year,
       vehicle_make: data.vehicle_make,
