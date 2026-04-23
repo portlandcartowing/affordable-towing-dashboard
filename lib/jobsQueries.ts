@@ -57,6 +57,36 @@ export type JobsMetrics = {
   avgTicket: number;
 };
 
+/**
+ * Revenue for a given window = sum of job.price for jobs created in the
+ * window whose status counts as sold (booked and any downstream state).
+ * Uses jobs (not leads) so price updates from the driver app, auto-fee
+ * calc, or dispatcher edits all land in the KPI regardless of lead sync.
+ */
+const REVENUE_STATUSES = new Set([
+  "booked",
+  "waiting_for_driver",
+  "posted_to_load_board",
+  "driver_assigned",
+  "in_transit",
+  "completed",
+]);
+
+export function sumJobsRevenueSince(jobs: Job[], sinceIso: string): {
+  revenue: number;
+  bookedCount: number;
+} {
+  let revenue = 0;
+  let bookedCount = 0;
+  for (const j of jobs) {
+    if (!REVENUE_STATUSES.has(j.status)) continue;
+    if (j.created_at < sinceIso) continue;
+    if (j.price != null) revenue += Number(j.price);
+    bookedCount += 1;
+  }
+  return { revenue, bookedCount };
+}
+
 /** Derive metrics from an already-fetched list of jobs. One Supabase round-trip
  *  feeds both the KPI cards and the job queue table. */
 export function summarizeJobs(jobs: Job[]): JobsMetrics {

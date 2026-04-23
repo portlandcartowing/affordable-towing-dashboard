@@ -9,6 +9,7 @@ import {
   startOfWeek,
 } from "@/lib/queries";
 import { getCalls, summarizeCalls } from "@/lib/callTracking";
+import { getJobs, sumJobsRevenueSince } from "@/lib/jobsQueries";
 import {
   getAdSpend,
   lastNDaysRange,
@@ -41,11 +42,12 @@ export default async function DashboardPage() {
   const weekStartIso = startOfWeek();
   const weekRange = lastNDaysRange(7);
 
-  // Three parallel round-trips — previously this page made ~10.
-  const [weekLeads, calls, adSpendRows] = await Promise.all([
+  // Parallel round-trips.
+  const [weekLeads, calls, adSpendRows, jobs] = await Promise.all([
     getLeadsSince(weekStartIso),
     getCalls(200),
     getAdSpend(weekRange),
+    getJobs(200),
   ]);
 
   // In-memory derivation — zero extra Supabase calls.
@@ -53,6 +55,10 @@ export default async function DashboardPage() {
   const todayLeads = summarizeLeads(todayLeadsRows);
   const weekLeadsSummary = summarizeLeads(weekLeads);
   const callsSummary = summarizeCalls(calls, todayStartIso, weekStartIso);
+  // Revenue is sourced from jobs (price is adjusted there and mirrored to
+  // leads, but jobs is the canonical source; avoids lead-sync drift).
+  const todayJobsRevenue = sumJobsRevenueSince(jobs, todayStartIso);
+  const weekJobsRevenue = sumJobsRevenueSince(jobs, weekStartIso);
   const todayDateStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date());
   const todayAdRows = adSpendRows.filter((r) => r.date === todayDateStr);
   const adSpendToday = sumAdSpend(todayAdRows);
@@ -63,8 +69,8 @@ export default async function DashboardPage() {
 
   const callDenominator = callsSummary.today > 0 ? callsSummary.today : todayLeads.count;
   const costPerCall = callDenominator > 0 ? adSpendToday / callDenominator : 0;
-  const costPerJob = todayLeads.booked > 0 ? adSpendToday / todayLeads.booked : 0;
-  const roi = adSpendToday > 0 ? ((todayLeads.revenue - adSpendToday) / adSpendToday) * 100 : 0;
+  const costPerJob = todayJobsRevenue.bookedCount > 0 ? adSpendToday / todayJobsRevenue.bookedCount : 0;
+  const roi = adSpendToday > 0 ? ((todayJobsRevenue.revenue - adSpendToday) / adSpendToday) * 100 : 0;
 
   return (
     <>
@@ -92,17 +98,17 @@ export default async function DashboardPage() {
             />
             <KpiCard
               title="Jobs Booked"
-              value={todayLeads.booked.toString()}
-              delta={`${todayLeads.count > 0 ? Math.round((todayLeads.booked / todayLeads.count) * 100) : 0}% conv.`}
-              trend={todayLeads.booked > 0 ? "up" : "neutral"}
+              value={todayJobsRevenue.bookedCount.toString()}
+              delta={`${todayLeads.count > 0 ? Math.round((todayJobsRevenue.bookedCount / todayLeads.count) * 100) : 0}% conv.`}
+              trend={todayJobsRevenue.bookedCount > 0 ? "up" : "neutral"}
               icon="✓"
               accent="emerald"
               href="/jobs"
             />
             <KpiCard
               title="Revenue"
-              value={money(todayLeads.revenue)}
-              trend={todayLeads.revenue > 0 ? "up" : "neutral"}
+              value={money(todayJobsRevenue.revenue)}
+              trend={todayJobsRevenue.revenue > 0 ? "up" : "neutral"}
               icon="▲"
               accent="emerald"
               href="/jobs"
@@ -158,13 +164,13 @@ export default async function DashboardPage() {
             <KpiCard title="Leads (7d)" value={weekLeadsSummary.count.toString()} icon="◉" accent="indigo" href="/leads" />
             <KpiCard
               title="Booked (7d)"
-              value={weekLeadsSummary.booked.toString()}
-              trend={weekLeadsSummary.booked > 0 ? "up" : "neutral"}
+              value={weekJobsRevenue.bookedCount.toString()}
+              trend={weekJobsRevenue.bookedCount > 0 ? "up" : "neutral"}
               icon="✓"
               accent="emerald"
               href="/jobs"
             />
-            <KpiCard title="Revenue (7d)" value={money(weekLeadsSummary.revenue)} icon="▲" accent="emerald" href="/jobs" />
+            <KpiCard title="Revenue (7d)" value={money(weekJobsRevenue.revenue)} icon="▲" accent="emerald" href="/jobs" />
             <KpiCard title="Ad Spend (7d)" value={money(adSpendWeek)} icon="$" accent="amber" href="/marketing" />
           </div>
         </section>
