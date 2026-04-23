@@ -11,7 +11,7 @@ const supabase = createClient(
 );
 
 // Routes that don't need auth
-const PUBLIC_ROUTES = ["/login", "/driver", "/proposal"];
+const PUBLIC_ROUTES = ["/login", "/driver", "/proposal", "/track"];
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();

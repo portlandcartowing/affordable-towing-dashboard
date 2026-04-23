@@ -9,6 +9,11 @@ export default function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
 
+  // Hide on customer-facing public routes
+  if (pathname?.startsWith("/track") || pathname?.startsWith("/proposal")) {
+    return null;
+  }
+
   return (
     <aside
       className={`hidden md:flex md:flex-col shrink-0 bg-white border-r border-slate-200/70 h-screen sticky top-0 transition-[width] duration-200 ${

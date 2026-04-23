@@ -8,6 +8,11 @@ export default function MobileNav() {
   const pathname = usePathname();
   const items = NAV_LINKS.filter((l) => l.mobile);
 
+  // Hide on customer-facing public routes
+  if (pathname?.startsWith("/track") || pathname?.startsWith("/proposal")) {
+    return null;
+  }
+
   return (
     <nav
       className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/70 pb-[env(safe-area-inset-bottom)]"
