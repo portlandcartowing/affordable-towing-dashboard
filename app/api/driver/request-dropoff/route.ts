@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomBytes } from "crypto";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { getTwilioClient, twilioNumber } from "@/lib/twilio";
 
@@ -22,7 +23,7 @@ export async function POST(req: NextRequest) {
 
   const { data: job, error: jobErr } = await supabase
     .from("jobs")
-    .select("id, phone, lead_id, dropoff_address, dropoff_city, dropoff_requested_at")
+    .select("id, phone, lead_id, dropoff_address, dropoff_city, dropoff_requested_at, tracking_token")
     .eq("id", jobId)
     .single();
 
@@ -69,18 +70,31 @@ export async function POST(req: NextRequest) {
     .maybeSingle();
   if (lastInbound?.to_number) fromNumber = lastInbound.to_number;
 
+  // Ensure a tracking token exists for the public /track/[token] page
+  let trackingToken = job.tracking_token as string | null;
+  if (!trackingToken) {
+    trackingToken = randomBytes(12).toString("hex"); // 24-char opaque id
+    await supabase.from("jobs").update({ tracking_token: trackingToken }).eq("id", jobId);
+  }
+
+  const baseUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    `https://${req.headers.get("host")}`;
+  const trackUrl = `${baseUrl}/track/${trackingToken}`;
+  const combinedBody = `${DROPOFF_REQUEST_BODY}\n\nTrack your driver: ${trackUrl}`;
+
   try {
     const msg = await getTwilioClient().messages.create({
       to: job.phone,
       from: fromNumber,
-      body: DROPOFF_REQUEST_BODY,
+      body: combinedBody,
     });
 
     await supabase.from("messages").insert({
       direction: "outbound",
       from_number: fromNumber,
       to_number: job.phone,
-      body: DROPOFF_REQUEST_BODY,
+      body: combinedBody,
       job_id: jobId,
       lead_id: job.lead_id,
       twilio_sid: msg.sid,
@@ -93,7 +107,7 @@ export async function POST(req: NextRequest) {
       .update({ dropoff_requested_at: new Date().toISOString() })
       .eq("id", jobId);
 
-    return NextResponse.json({ ok: true, sid: msg.sid });
+    return NextResponse.json({ ok: true, sid: msg.sid, trackingToken });
   } catch (err) {
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }
