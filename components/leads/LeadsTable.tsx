@@ -219,9 +219,17 @@ export default function LeadsTable({
                 isOpen ? "ring-blue-300 shadow-md" : "ring-slate-200/70"
               }`}
             >
-              <button
+              <div
+                role="button"
+                tabIndex={0}
                 onClick={() => toggle(lead.id)}
-                className="w-full text-left p-4 hover:bg-slate-50/50 transition-colors"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    toggle(lead.id);
+                  }
+                }}
+                className="w-full text-left p-4 hover:bg-slate-50/50 transition-colors cursor-pointer"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -239,7 +247,7 @@ export default function LeadsTable({
                     </span>
                   </div>
                 </div>
-              </button>
+              </div>
 
               {isOpen && (
                 <>

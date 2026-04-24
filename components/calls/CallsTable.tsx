@@ -151,11 +151,20 @@ export default function CallsTable({
   calls,
   leadIdsWithJobs: leadIdsArr,
   leadNames = {},
+  namesByPhone = {},
 }: {
   calls: Call[];
   leadIdsWithJobs: string[];
   leadNames?: Record<string, string>;
+  namesByPhone?: Record<string, string>;
 }) {
+  // Resolve the display name for a call, preferring the phone-based map
+  // (which covers historical calls without a linked lead) and falling back
+  // to the linked-lead map.
+  const nameFor = (call: Call): string | null =>
+    (call.caller_phone && namesByPhone[call.caller_phone]) ||
+    (call.lead_id && leadNames[call.lead_id]) ||
+    null;
   const router = useRouter();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -225,14 +234,25 @@ export default function CallsTable({
                   onChange={() => toggleSelect(call.id)}
                   className="mt-1 h-4 w-4 rounded border-slate-300 shrink-0"
                 />
-                <button onClick={() => toggle(call.id)} className="flex-1 text-left min-w-0">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => toggle(call.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      toggle(call.id);
+                    }
+                  }}
+                  className="flex-1 text-left min-w-0 cursor-pointer"
+                >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <span className="font-semibold text-blue-600 truncate block">{call.caller_phone || "Unknown"}</span>
                       <div className="text-xs text-slate-900 font-medium truncate" onClick={(e) => e.stopPropagation()}>
                         <EditableCustomerName
                           phone={call.caller_phone}
-                          initialName={(call.lead_id && leadNames[call.lead_id]) || null}
+                          initialName={nameFor(call)}
                         />
                       </div>
                       <div className="text-[11px] text-slate-400 mt-0.5">{formatTime(call.started_at || call.created_at)}</div>
@@ -248,13 +268,13 @@ export default function CallsTable({
                   {!isOpen && call.transcript && (
                     <div className="mt-2 text-xs text-slate-500 border-t border-slate-100 pt-2">{truncate(call.transcript, 100)}</div>
                   )}
-                </button>
+                </div>
               </div>
               {isOpen && (
                 <>
                   <CallDetail
                     call={call}
-                    leadName={(call.lead_id && leadNames[call.lead_id]) || null}
+                    leadName={nameFor(call)}
                     onDispositionChanged={handleDispositionChanged}
                   />
                   <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between">
@@ -305,7 +325,7 @@ export default function CallsTable({
                       <td className="px-3 py-2.5 text-slate-900 text-xs" onClick={(e) => e.stopPropagation()}>
                         <EditableCustomerName
                           phone={call.caller_phone}
-                          initialName={(call.lead_id && leadNames[call.lead_id]) || null}
+                          initialName={nameFor(call)}
                           placeholder="—"
                         />
                       </td>
@@ -324,7 +344,7 @@ export default function CallsTable({
                       <tr key={`${call.id}-detail`}><td colSpan={9} className="p-0" onClick={(e) => e.stopPropagation()}>
                         <CallDetail
                           call={call}
-                          leadName={(call.lead_id && leadNames[call.lead_id]) || null}
+                          leadName={nameFor(call)}
                           onDispositionChanged={handleDispositionChanged}
                         />
                       </td></tr>

@@ -15,20 +15,38 @@ export default async function CallsPage() {
     getLeadIdsWithJobs(),
   ]);
 
-  // Fetch customer names for linked leads
+  // Build two name maps. Phone is the canonical customer identity —
+  // editing a name on /customers/<phone> propagates to every call sharing
+  // that phone, including historical calls that were never linked to a
+  // lead. lead-id map is kept as fallback for any edge case.
+  const callerPhones = Array.from(
+    new Set(calls.map(c => c.caller_phone).filter(Boolean) as string[])
+  );
   const leadIds = calls.map(c => c.lead_id).filter(Boolean) as string[];
-  let leadNames: Record<string, string> = {};
-  if (leadIds.length > 0) {
-    const { data } = await supabase
-      .from("leads")
-      .select("id, customer")
-      .in("id", leadIds);
-    if (data) {
-      leadNames = Object.fromEntries(
-        data.map(l => [l.id, l.customer || ""])
-      );
+
+  const [phoneNamesRes, leadNamesRes] = await Promise.all([
+    callerPhones.length > 0
+      ? supabase
+          .from("leads")
+          .select("phone, customer, created_at")
+          .in("phone", callerPhones)
+          .not("customer", "is", null)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: null }),
+    leadIds.length > 0
+      ? supabase.from("leads").select("id, customer").in("id", leadIds)
+      : Promise.resolve({ data: null }),
+  ]);
+
+  const namesByPhone: Record<string, string> = {};
+  for (const l of phoneNamesRes.data ?? []) {
+    if (l.phone && l.customer && !namesByPhone[l.phone]) {
+      namesByPhone[l.phone] = l.customer;
     }
   }
+  const leadNames: Record<string, string> = Object.fromEntries(
+    (leadNamesRes.data ?? []).map(l => [l.id, l.customer || ""])
+  );
   const summary = summarizeCalls(calls, startOfToday(), startOfWeek());
   const conversionRate =
     summary.today > 0 ? Math.round((summary.convertedToday / summary.today) * 100) : 0;
@@ -63,7 +81,7 @@ export default async function CallsPage() {
               subtitle={`${calls.length} tracked ${calls.length === 1 ? "call" : "calls"}`}
             />
           </div>
-          <CallsTable calls={calls} leadIdsWithJobs={[...leadIdsWithJobs]} leadNames={leadNames} />
+          <CallsTable calls={calls} leadIdsWithJobs={[...leadIdsWithJobs]} leadNames={leadNames} namesByPhone={namesByPhone} />
         </section>
       </main>
     </>
