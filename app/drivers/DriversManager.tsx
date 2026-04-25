@@ -11,6 +11,7 @@ type Driver = {
   status: string;
   hookup_fee: number;
   rate_per_mile: number;
+  commission_pct: number;
   created_at: string;
 };
 
@@ -92,9 +93,11 @@ export default function DriversManager({ initialDrivers }: { initialDrivers: Dri
               className="px-3 py-2 rounded-xl ring-1 ring-slate-200 text-sm focus:ring-blue-400 outline-none" />
             <input name="phone" placeholder="Phone"
               className="px-3 py-2 rounded-xl ring-1 ring-slate-200 text-sm focus:ring-blue-400 outline-none" />
-            <input name="hookup_fee" type="number" placeholder="Hookup Fee" defaultValue="95"
+            <input name="hookup_fee" type="number" step="0.01" placeholder="Hookup Fee ($)" defaultValue="95"
               className="px-3 py-2 rounded-xl ring-1 ring-slate-200 text-sm focus:ring-blue-400 outline-none" />
-            <input name="rate_per_mile" type="number" step="0.5" placeholder="Rate Per Mile" defaultValue="4"
+            <input name="rate_per_mile" type="number" step="0.01" placeholder="Rate Per Mile ($)" defaultValue="4"
+              className="px-3 py-2 rounded-xl ring-1 ring-slate-200 text-sm focus:ring-blue-400 outline-none" />
+            <input name="commission_pct" type="number" min="0" max="100" placeholder="Commission %" defaultValue="50"
               className="px-3 py-2 rounded-xl ring-1 ring-slate-200 text-sm focus:ring-blue-400 outline-none" />
           </div>
           <button type="submit" disabled={loading}
@@ -129,9 +132,11 @@ export default function DriversManager({ initialDrivers }: { initialDrivers: Dri
                           className="px-3 py-2 rounded-lg ring-1 ring-slate-200 text-sm outline-none focus:ring-blue-400" />
                         <input name="phone" defaultValue={driver.phone || ""} placeholder="Phone"
                           className="px-3 py-2 rounded-lg ring-1 ring-slate-200 text-sm outline-none focus:ring-blue-400" />
-                        <input name="hookup_fee" type="number" defaultValue={driver.hookup_fee} placeholder="Hookup"
+                        <input name="hookup_fee" type="number" step="0.01" defaultValue={driver.hookup_fee} placeholder="Hookup ($)"
                           className="px-3 py-2 rounded-lg ring-1 ring-slate-200 text-sm outline-none focus:ring-blue-400" />
-                        <input name="rate_per_mile" type="number" step="0.5" defaultValue={driver.rate_per_mile} placeholder="Rate/mi"
+                        <input name="rate_per_mile" type="number" step="0.01" defaultValue={driver.rate_per_mile} placeholder="Rate/mi ($)"
+                          className="px-3 py-2 rounded-lg ring-1 ring-slate-200 text-sm outline-none focus:ring-blue-400" />
+                        <input name="commission_pct" type="number" min="0" max="100" defaultValue={driver.commission_pct} placeholder="Commission %"
                           className="px-3 py-2 rounded-lg ring-1 ring-slate-200 text-sm outline-none focus:ring-blue-400" />
                         <select name="status" defaultValue={driver.status}
                           className="px-3 py-2 rounded-lg ring-1 ring-slate-200 text-sm outline-none focus:ring-blue-400">
@@ -167,7 +172,8 @@ export default function DriversManager({ initialDrivers }: { initialDrivers: Dri
                       </span>
                     </td>
                     <td className="px-4 py-3 text-slate-600">
-                      ${driver.hookup_fee} hookup · ${driver.rate_per_mile}/mi
+                      <div>${driver.hookup_fee} hookup &middot; ${driver.rate_per_mile}/mi</div>
+                      <div className="text-xs text-slate-400">Driver gets {driver.commission_pct}%</div>
                     </td>
                     <td className="px-4 py-3 text-right space-x-2">
                       <button
