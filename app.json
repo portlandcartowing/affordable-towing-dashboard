@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "4306c6b4-3990-4d70-8f00-213f632c43c6"
+      }
+    },
+    "android": {
+      "package": "com.pctdispatch.affordabletowingdashboard"
+    }
+  }
+}

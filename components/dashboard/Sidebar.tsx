@@ -24,7 +24,7 @@ export default function Sidebar() {
         {!collapsed ? (
           <div className="min-w-0 flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-bold flex items-center justify-center text-sm shadow-sm">
-              AT
+              ACT
             </div>
             <div className="min-w-0">
               <div className="text-sm font-bold text-slate-900 truncate leading-tight">

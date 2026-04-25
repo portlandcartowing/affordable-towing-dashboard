@@ -15,17 +15,23 @@ export default async function LeadsPage() {
 
   const leads: Lead[] = data ?? [];
 
-  // Fetch call dispositions for linked leads so the status dropdown shows the right value
+  // Fetch call dispositions + recording URLs for linked leads so the status
+  // dropdown shows the right value AND the expanded view can play the
+  // original call audio for the driver.
   const callIds = leads.map(l => l.call_id).filter(Boolean) as string[];
   let callDispositions: Record<string, string> = {};
+  let callRecordings: Record<string, string> = {};
   if (callIds.length > 0) {
     const { data: calls } = await supabase
       .from("calls")
-      .select("id, disposition")
+      .select("id, disposition, recording_url")
       .in("id", callIds);
     if (calls) {
       callDispositions = Object.fromEntries(
         calls.filter(c => c.disposition).map(c => [c.id, c.disposition])
+      );
+      callRecordings = Object.fromEntries(
+        calls.filter(c => c.recording_url).map(c => [c.id, c.recording_url as string])
       );
     }
   }
@@ -52,7 +58,7 @@ export default async function LeadsPage() {
           </div>
         )}
 
-        <LeadsTable leads={leads} leadIdsWithJobs={[...leadIdsWithJobs]} callDispositions={callDispositions} jobsByLead={jobsByLead} />
+        <LeadsTable leads={leads} leadIdsWithJobs={[...leadIdsWithJobs]} callDispositions={callDispositions} callRecordings={callRecordings} jobsByLead={jobsByLead} />
       </main>
     </>
   );

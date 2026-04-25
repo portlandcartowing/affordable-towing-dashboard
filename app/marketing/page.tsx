@@ -3,6 +3,7 @@ import KpiCard from "@/components/dashboard/KpiCard";
 import DateRangePicker from "@/components/marketing/DateRangePicker";
 import CampaignTable from "@/components/marketing/CampaignTable";
 import CsvUpload from "@/components/marketing/CsvUpload";
+import MarketingBot from "@/components/marketing/MarketingBot";
 import {
   getAdSpend,
   summarizeCampaigns,
@@ -69,6 +70,8 @@ export default async function MarketingPage({
         </div>
 
         <CsvUpload />
+
+        <MarketingBot />
 
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
           <div className="p-5 border-b border-b-slate-100">

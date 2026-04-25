@@ -6,6 +6,7 @@ import EmptyState from "@/components/dashboard/EmptyState";
 import { updateLeadStatus } from "@/app/leads/actions";
 import EditableLeadField, { SERVICE_OPTIONS } from "./EditableLeadField";
 import EditableCustomerName from "@/components/calls/EditableCustomerName";
+import AudioPlayer from "@/components/calls/AudioPlayer";
 import LeadJobActions from "./LeadJobActions";
 import type { Lead } from "@/lib/types";
 
@@ -104,7 +105,7 @@ function LeadStatusChanger({ lead, onChanged, callDisposition }: { lead: Lead; o
 }
 
 /* ── Expanded detail panel ── */
-function LeadDetail({ lead, hasJob, onStatusChanged, callDisposition }: { lead: Lead; hasJob: boolean; onStatusChanged?: () => void; callDisposition?: string | null }) {
+function LeadDetail({ lead, hasJob, onStatusChanged, callDisposition, recordingUrl }: { lead: Lead; hasJob: boolean; onStatusChanged?: () => void; callDisposition?: string | null; recordingUrl?: string | null }) {
   return (
     <div className="px-5 py-4 bg-slate-50/60 space-y-4 text-sm border-t border-slate-100">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -167,6 +168,13 @@ function LeadDetail({ lead, hasJob, onStatusChanged, callDisposition }: { lead: 
         </div>
       </div>
 
+      {recordingUrl && (
+        <div>
+          <div className="text-[11px] uppercase text-slate-400 font-medium mb-1">Original Call Recording</div>
+          <AudioPlayer src={recordingUrl} />
+        </div>
+      )}
+
       {lead.notes && (
         <div>
           <div className="text-[11px] uppercase text-slate-400 font-medium mb-1">Notes</div>
@@ -194,11 +202,13 @@ export default function LeadsTable({
   leads,
   leadIdsWithJobs: leadIdsArr,
   callDispositions = {},
+  callRecordings = {},
   jobsByLead = {},
 }: {
   leads: Lead[];
   leadIdsWithJobs: string[];
   callDispositions?: Record<string, string>;
+  callRecordings?: Record<string, string>;
   jobsByLead?: Record<string, { jobId: string; status: string }>;
 }) {
   const router = useRouter();
@@ -269,7 +279,7 @@ export default function LeadsTable({
 
               {isOpen && (
                 <>
-                  <LeadDetail lead={lead} hasJob={hasJob} onStatusChanged={handleStatusChanged} callDisposition={lead.call_id ? callDispositions[lead.call_id] : null} />
+                  <LeadDetail lead={lead} hasJob={hasJob} onStatusChanged={handleStatusChanged} callDisposition={lead.call_id ? callDispositions[lead.call_id] : null} recordingUrl={lead.call_id ? callRecordings[lead.call_id] : null} />
                   <div className="px-4 py-3 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
                     <LeadJobActions
                       leadId={lead.id}
@@ -360,7 +370,7 @@ export default function LeadsTable({
                   {isOpen && (
                     <tr>
                       <td colSpan={9} className="p-0">
-                        <LeadDetail lead={lead} hasJob={hasJob} onStatusChanged={handleStatusChanged} callDisposition={lead.call_id ? callDispositions[lead.call_id] : null} />
+                        <LeadDetail lead={lead} hasJob={hasJob} onStatusChanged={handleStatusChanged} callDisposition={lead.call_id ? callDispositions[lead.call_id] : null} recordingUrl={lead.call_id ? callRecordings[lead.call_id] : null} />
                       </td>
                     </tr>
                   )}

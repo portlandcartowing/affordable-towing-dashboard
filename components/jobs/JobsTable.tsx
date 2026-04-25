@@ -33,6 +33,20 @@ const SIMPLE_STATUSES = [
   { value: "completed", label: "Completed" },
 ] as const;
 
+/* ── Color coding per status — matches LeadsTable + CallsTable ── */
+const JOB_STATUS_STYLES: Record<string, { stripe: string; selectBg: string; selectText: string; selectRing: string }> = {
+  booked:    { stripe: "bg-emerald-500", selectBg: "bg-emerald-50",  selectText: "text-emerald-800", selectRing: "ring-emerald-300" },
+  completed: { stripe: "bg-emerald-700", selectBg: "bg-emerald-100", selectText: "text-emerald-900", selectRing: "ring-emerald-400" },
+  callback:  { stripe: "bg-blue-500",    selectBg: "bg-blue-50",     selectText: "text-blue-800",    selectRing: "ring-blue-300"    },
+  standby:   { stripe: "bg-amber-500",   selectBg: "bg-amber-50",    selectText: "text-amber-800",   selectRing: "ring-amber-300"   },
+  lost:      { stripe: "bg-rose-500",    selectBg: "bg-rose-50",     selectText: "text-rose-800",    selectRing: "ring-rose-300"    },
+  new_lead:  { stripe: "bg-slate-200",   selectBg: "bg-white",       selectText: "text-slate-700",   selectRing: "ring-slate-200"   },
+};
+
+function jobStatusColors(status: string) {
+  return JOB_STATUS_STYLES[status] ?? JOB_STATUS_STYLES.new_lead;
+}
+
 // Map the full job statuses to the simplified set for display
 function simplifyJobStatus(status: JobStatus): string {
   const map: Record<string, string> = {
@@ -92,13 +106,14 @@ function JobStatusChanger({ job, onChanged }: { job: Job; onChanged?: () => void
     });
   };
 
+  const colors = jobStatusColors(localValue);
   return (
     <div className="relative" onClick={(e) => e.stopPropagation()}>
       <select
         value={localValue}
         onChange={handleChange}
         disabled={isPending}
-        className="text-sm font-medium rounded-lg px-2 py-1.5 ring-1 ring-slate-200 bg-white hover:ring-blue-300 focus:ring-blue-400 focus:outline-none disabled:opacity-50 cursor-pointer"
+        className={`text-sm font-medium rounded-lg px-2 py-1.5 ring-1 ${colors.selectRing} ${colors.selectBg} ${colors.selectText} hover:ring-blue-300 focus:ring-blue-400 focus:outline-none disabled:opacity-50 cursor-pointer transition-colors`}
       >
         {SIMPLE_STATUSES.map((s) => (
           <option key={s.value} value={s.value}>{s.label}</option>
@@ -274,17 +289,28 @@ export default function JobsTable({ jobs }: { jobs: Job[] }) {
           const pickup = [job.pickup_city, job.pickup_state].filter(Boolean).join(", ");
           const dropoff = [job.dropoff_city, job.dropoff_state].filter(Boolean).join(", ");
           const isOpen = expandedId === job.id;
+          const status = simplifyJobStatus(job.status);
+          const stripeClass = jobStatusColors(status).stripe;
 
           return (
             <div
               key={job.id}
-              className={`bg-white rounded-2xl ring-1 shadow-sm overflow-hidden transition-all ${
+              className={`relative bg-white rounded-2xl ring-1 shadow-sm overflow-hidden transition-all ${
                 isOpen ? "ring-blue-300 shadow-md" : "ring-slate-200/70 border-slate-100"
               }`}
             >
-              <button
+              <span aria-hidden className={`absolute inset-y-0 left-0 w-1.5 ${stripeClass}`} />
+              <div
+                role="button"
+                tabIndex={0}
                 onClick={() => toggle(job.id)}
-                className="w-full text-left p-4 hover:bg-slate-50/50 transition-colors"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    toggle(job.id);
+                  }
+                }}
+                className="w-full text-left p-4 hover:bg-slate-50/50 transition-colors cursor-pointer"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -327,7 +353,7 @@ export default function JobsTable({ jobs }: { jobs: Job[] }) {
                     <div className="text-xs text-slate-500">{job.distance_miles} mi</div>
                   )}
                 </div>
-              </button>
+              </div>
 
               {isOpen && <JobDetail job={job} onStatusChanged={handleStatusChanged} />}
             </div>
@@ -363,6 +389,8 @@ export default function JobsTable({ jobs }: { jobs: Job[] }) {
                 .filter(Boolean)
                 .join(", ");
               const isOpen = expandedId === job.id;
+              const status = simplifyJobStatus(job.status);
+              const stripeClass = jobStatusColors(status).stripe;
 
               return (
                 <tbody key={job.id}>
@@ -372,7 +400,8 @@ export default function JobsTable({ jobs }: { jobs: Job[] }) {
                       isOpen ? "bg-blue-50/40" : "hover:bg-slate-50/50"
                     }`}
                   >
-                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <td className="relative px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <span aria-hidden className={`absolute inset-y-0 left-0 w-1.5 ${stripeClass}`} />
                       <JobStatusChanger job={job} onChanged={handleStatusChanged} />
                     </td>
                     <td className="px-4 py-3 font-medium text-slate-900">
