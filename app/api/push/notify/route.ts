@@ -135,17 +135,17 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Pull receipts ~3s after sending — this is where the REAL delivery
-  // errors show up (DeviceNotRegistered, MismatchSenderId, etc.)
-  let expoReceipts: unknown = null;
-  let expoReceiptError: string | null = null;
+  // Pull receipts after sending. Tickets confirm Expo accepted the message;
+  // receipts confirm delivery to FCM/APNS. The real delivery errors live here.
+  let receiptStats = { delivered: 0, errored: 0, pending: 0 };
+  let firstReceiptError: string | null = null;
+  let expoReceipts: Record<string, { status?: string; details?: { error?: string }; message?: string }> = {};
   if (Array.isArray(expoTickets)) {
     const ticketIds = (expoTickets as Array<{ id?: string; status?: string }>)
       .filter((t) => t.status === "ok" && t.id)
       .map((t) => t.id as string);
     if (ticketIds.length > 0) {
-      // Wait briefly for the push to be processed by Expo→FCM
-      await new Promise((r) => setTimeout(r, 3000));
+      await new Promise((r) => setTimeout(r, 4000));
       try {
         const receiptResp = await fetch("https://exp.host/--/api/v2/push/getReceipts", {
           method: "POST",
@@ -153,30 +153,47 @@ export async function POST(req: NextRequest) {
           body: JSON.stringify({ ids: ticketIds }),
         });
         const receiptJson = await receiptResp.json();
-        expoReceipts = receiptJson.data ?? receiptJson;
-        if (receiptJson.data) {
-          const firstError = Object.values(receiptJson.data).find(
-            (r: { status?: string; details?: { error?: string }; message?: string } | unknown) => {
-              const rec = r as { status?: string };
-              return rec.status === "error";
-            },
-          ) as { message?: string; details?: { error?: string } } | undefined;
-          if (firstError) {
-            expoReceiptError = `${firstError.details?.error || ""}: ${firstError.message || ""}`.trim();
+        const data = (receiptJson.data || {}) as Record<
+          string,
+          { status?: string; details?: { error?: string }; message?: string }
+        >;
+        expoReceipts = data;
+        for (const id of ticketIds) {
+          const rec = data[id];
+          if (!rec) {
+            receiptStats.pending++;
+          } else if (rec.status === "ok") {
+            receiptStats.delivered++;
+          } else if (rec.status === "error") {
+            receiptStats.errored++;
+            if (!firstReceiptError) {
+              firstReceiptError = `${rec.details?.error || "error"}: ${rec.message || "(no message)"}`;
+            }
+          } else {
+            receiptStats.pending++;
           }
         }
       } catch (err) {
-        expoReceiptError = `receipt fetch failed: ${String(err).slice(0, 200)}`;
+        firstReceiptError = `receipt fetch failed: ${String(err).slice(0, 200)}`;
       }
     }
   }
 
+  // Decide overall status. "delivered" requires at least one confirmed receipt.
+  let overall: "delivered" | "queued" | "failed" | "no_drivers";
+  if (expoMessages.length === 0) overall = "no_drivers";
+  else if (receiptStats.errored > 0 || expoError) overall = "failed";
+  else if (receiptStats.delivered > 0) overall = "delivered";
+  else overall = "queued";
+
   return NextResponse.json({
     ok: true,
+    overall,
     sent: { web: webSent, expo: expoSent },
+    receiptStats,
     expoError,
     expoTickets,
-    expoReceiptError,
+    expoReceiptError: firstReceiptError,
     expoReceipts,
   });
 }

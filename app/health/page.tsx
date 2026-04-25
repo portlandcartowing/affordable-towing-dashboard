@@ -227,15 +227,37 @@ function DiagnosticsPanel() {
       const json = await resp.json();
       if (resp.ok && json.ok) {
         const sent = json.sent || {};
-        const ticketErr = json.expoError ? ` · ticket: ${json.expoError}` : "";
-        const receiptErr = json.expoReceiptError ? ` · receipt: ${json.expoReceiptError}` : "";
-        setResult({
-          kind,
-          ok: !json.expoError && !json.expoReceiptError,
-          detail: `Sent · web: ${sent.web ?? 0}, expo: ${sent.expo ?? 0}${ticketErr}${receiptErr}`,
-        });
+        const stats = json.receiptStats || { delivered: 0, errored: 0, pending: 0 };
+        const overall = json.overall || "queued";
+
+        let label: string;
+        let detail: string;
+        let ok = false;
+        switch (overall) {
+          case "delivered":
+            label = "✅ DELIVERED";
+            detail = `Phone confirmed receipt · expo: ${sent.expo}, web: ${sent.web}, delivered: ${stats.delivered}`;
+            ok = true;
+            break;
+          case "queued":
+            label = "🟡 QUEUED — no confirmation yet";
+            detail = `Expo accepted, awaiting FCM confirmation · expo: ${sent.expo}, pending: ${stats.pending}. If your phone never shows it, OS is suppressing notifications.`;
+            break;
+          case "failed":
+            label = "❌ FAILED";
+            detail = `${json.expoReceiptError || json.expoError || "unknown error"} · errored: ${stats.errored}`;
+            break;
+          case "no_drivers":
+            label = "⚠️ NO DRIVERS";
+            detail = "No available driver has a registered Expo push token. Check the drivers table.";
+            break;
+          default:
+            label = "?";
+            detail = JSON.stringify(json).slice(0, 200);
+        }
+        setResult({ kind, ok, detail: `${label} — ${detail}` });
       } else {
-        setResult({ kind, ok: false, detail: json.error || `HTTP ${resp.status}` });
+        setResult({ kind, ok: false, detail: `❌ HTTP ${resp.status}: ${json.error || "request failed"}` });
       }
     } catch (err) {
       setResult({ kind, ok: false, detail: String(err) });
