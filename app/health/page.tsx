@@ -227,11 +227,12 @@ function DiagnosticsPanel() {
       const json = await resp.json();
       if (resp.ok && json.ok) {
         const sent = json.sent || {};
-        const errPart = json.expoError ? ` · ⚠ Expo: ${json.expoError}` : "";
+        const ticketErr = json.expoError ? ` · ticket: ${json.expoError}` : "";
+        const receiptErr = json.expoReceiptError ? ` · receipt: ${json.expoReceiptError}` : "";
         setResult({
           kind,
-          ok: !json.expoError,
-          detail: `Sent · web: ${sent.web ?? 0}, expo: ${sent.expo ?? 0}${errPart}`,
+          ok: !json.expoError && !json.expoReceiptError,
+          detail: `Sent · web: ${sent.web ?? 0}, expo: ${sent.expo ?? 0}${ticketErr}${receiptErr}`,
         });
       } else {
         setResult({ kind, ok: false, detail: json.error || `HTTP ${resp.status}` });
