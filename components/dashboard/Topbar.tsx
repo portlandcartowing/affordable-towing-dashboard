@@ -1,3 +1,5 @@
+import GlobalSearch from "./GlobalSearch";
+
 export default function Topbar({
   title,
   subtitle,
@@ -22,6 +24,7 @@ export default function Topbar({
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {action}
+          <GlobalSearch />
           <button
             className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center text-sm font-semibold ring-1 ring-white shadow-sm"
             aria-label="Account"
