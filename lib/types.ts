@@ -229,8 +229,18 @@ export interface Job {
   driver_pay: number | null;
   notes: string | null;
 
+  // Per-job override on the auto-computed total (hookup + miles*per_mile).
+  // Drivers can add/subtract here with a short note.
+  adjustment: number | null;
+  adjustment_note: string | null;
+
+  // Actual amount collected from the customer (vs `price` which may be the
+  // quoted/calculated total). Used for revenue reporting + reconciliation.
+  paid_amount: number | null;
+
   driver_id: UUID | null;
   scheduled_for: ISOTimestamp | null;
+  completed_at: ISOTimestamp | null;
 }
 
 // ---------------------------------------------------------------------------
