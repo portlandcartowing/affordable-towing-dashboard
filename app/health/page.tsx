@@ -185,6 +185,96 @@ export default function HealthPage() {
           />
         </div>
       </section>
+
+      {/* Diagnostics */}
+      <section>
+        <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Diagnostics</h2>
+        <DiagnosticsPanel />
+      </section>
+    </div>
+  );
+}
+
+function DiagnosticsPanel() {
+  const [busy, setBusy] = useState<"call" | "msg" | null>(null);
+  const [result, setResult] = useState<{ kind: "call" | "msg"; ok: boolean; detail: string } | null>(null);
+
+  const fire = async (kind: "call" | "msg") => {
+    if (busy) return;
+    setBusy(kind);
+    setResult(null);
+    try {
+      const body =
+        kind === "call"
+          ? {
+              type: "incoming_call",
+              caller_phone: "+15035551234",
+              source: "test",
+              call_id: `test-${Date.now()}`,
+            }
+          : {
+              type: "message",
+              caller_phone: "+15035551234",
+              source: "sms",
+              body: "Test message from /health diagnostics",
+              call_id: null,
+            };
+      const resp = await fetch("/api/push/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = await resp.json();
+      if (resp.ok && json.ok) {
+        const sent = json.sent || {};
+        setResult({
+          kind,
+          ok: true,
+          detail: `Sent · web: ${sent.web ?? 0}, expo: ${sent.expo ?? 0}`,
+        });
+      } else {
+        setResult({ kind, ok: false, detail: json.error || `HTTP ${resp.status}` });
+      }
+    } catch (err) {
+      setResult({ kind, ok: false, detail: String(err) });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl ring-1 ring-slate-200/70 p-4 shadow-sm">
+      <div className="text-sm text-slate-600 mb-3">
+        Fires a real push to every available driver&apos;s registered device. Tests the
+        push pipeline end-to-end without needing a real call or SMS.
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => fire("call")}
+          disabled={!!busy}
+          className="px-4 py-2 text-sm font-semibold rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {busy === "call" ? "Sending…" : "🔔 Test incoming call push"}
+        </button>
+        <button
+          onClick={() => fire("msg")}
+          disabled={!!busy}
+          className="px-4 py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {busy === "msg" ? "Sending…" : "💬 Test message push"}
+        </button>
+      </div>
+      {result && (
+        <div
+          className={`mt-3 px-3 py-2 rounded-lg text-xs font-medium ${
+            result.ok
+              ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+              : "bg-rose-50 text-rose-700 ring-1 ring-rose-200"
+          }`}
+        >
+          {result.ok ? "✓" : "✗"} {result.kind === "call" ? "Incoming call" : "Message"}: {result.detail}
+        </div>
+      )}
     </div>
   );
 }
