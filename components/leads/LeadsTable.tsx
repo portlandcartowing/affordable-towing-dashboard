@@ -36,11 +36,25 @@ const LEAD_STATUSES = [
   { value: "spam", label: "Spam" },
 ] as const;
 
+/* ── Color coding per status — mirrors DISP_STYLES on CallsTable ── */
+const LEAD_STATUS_STYLES: Record<string, { stripe: string; selectBg: string; selectText: string; selectRing: string }> = {
+  booked:   { stripe: "bg-emerald-500", selectBg: "bg-emerald-50",  selectText: "text-emerald-800", selectRing: "ring-emerald-300" },
+  callback: { stripe: "bg-blue-500",    selectBg: "bg-blue-50",     selectText: "text-blue-800",    selectRing: "ring-blue-300"    },
+  standby:  { stripe: "bg-amber-500",   selectBg: "bg-amber-50",    selectText: "text-amber-800",   selectRing: "ring-amber-300"   },
+  lost:     { stripe: "bg-rose-500",    selectBg: "bg-rose-50",     selectText: "text-rose-800",    selectRing: "ring-rose-300"    },
+  spam:     { stripe: "bg-slate-400",   selectBg: "bg-slate-100",   selectText: "text-slate-600",   selectRing: "ring-slate-300"   },
+  new_lead: { stripe: "bg-slate-200",   selectBg: "bg-white",       selectText: "text-slate-700",   selectRing: "ring-slate-200"   },
+};
+
 function deriveLeadStatus(lead: Lead, callDisp?: string | null): string {
   // If linked call has a disposition, use that as the source of truth
   if (callDisp) return callDisp;
   if (lead.booked) return "booked";
   return "new_lead";
+}
+
+function leadStatusColors(status: string) {
+  return LEAD_STATUS_STYLES[status] ?? LEAD_STATUS_STYLES.new_lead;
 }
 
 function LeadStatusChanger({ lead, onChanged, callDisposition }: { lead: Lead; onChanged?: () => void; callDisposition?: string | null }) {
@@ -67,13 +81,14 @@ function LeadStatusChanger({ lead, onChanged, callDisposition }: { lead: Lead; o
     });
   };
 
+  const colors = leadStatusColors(localValue);
   return (
     <div className="relative" onClick={(e) => e.stopPropagation()}>
       <select
         value={localValue}
         onChange={handleChange}
         disabled={isPending}
-        className="text-sm font-medium rounded-lg px-2 py-1.5 ring-1 ring-slate-200 bg-white hover:ring-blue-300 focus:ring-blue-400 focus:outline-none disabled:opacity-50 cursor-pointer"
+        className={`text-sm font-medium rounded-lg px-2 py-1.5 ring-1 ${colors.selectRing} ${colors.selectBg} ${colors.selectText} hover:ring-blue-300 focus:ring-blue-400 focus:outline-none disabled:opacity-50 cursor-pointer transition-colors`}
       >
         {LEAD_STATUSES.map((s) => (
           <option key={s.value} value={s.value}>{s.label}</option>
@@ -212,13 +227,16 @@ export default function LeadsTable({
         {leads.map((lead) => {
           const hasJob = leadIdsWithJobs.has(lead.id);
           const isOpen = expandedId === lead.id;
+          const status = deriveLeadStatus(lead, lead.call_id ? callDispositions[lead.call_id] : null);
+          const stripeClass = leadStatusColors(status).stripe;
           return (
             <li
               key={lead.id}
-              className={`bg-white rounded-2xl ring-1 shadow-sm overflow-hidden transition-all ${
+              className={`relative bg-white rounded-2xl ring-1 shadow-sm overflow-hidden transition-all ${
                 isOpen ? "ring-blue-300 shadow-md" : "ring-slate-200/70"
               }`}
             >
+              <span aria-hidden className={`absolute inset-y-0 left-0 w-1.5 ${stripeClass}`} />
               <div
                 role="button"
                 tabIndex={0}
@@ -287,6 +305,8 @@ export default function LeadsTable({
             {leads.map((lead) => {
               const hasJob = leadIdsWithJobs.has(lead.id);
               const isOpen = expandedId === lead.id;
+              const status = deriveLeadStatus(lead, lead.call_id ? callDispositions[lead.call_id] : null);
+              const stripeClass = leadStatusColors(status).stripe;
               return (
                 <tbody key={lead.id}>
                   <tr
@@ -295,7 +315,8 @@ export default function LeadsTable({
                       isOpen ? "bg-blue-50/40" : "hover:bg-slate-50/50"
                     }`}
                   >
-                    <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
+                    <td className="relative px-4 py-3 text-slate-500 whitespace-nowrap">
+                      <span aria-hidden className={`absolute inset-y-0 left-0 w-1.5 ${stripeClass}`} />
                       {formatTime(lead.created_at)}
                     </td>
                     <td className="px-4 py-3 font-medium text-slate-900" onClick={(e) => e.stopPropagation()}>
