@@ -102,6 +102,8 @@ export async function POST(req: NextRequest) {
     }));
 
   let expoSent = 0;
+  let expoTickets: unknown = null;
+  let expoError: string | null = null;
   if (expoMessages.length > 0) {
     try {
       const resp = await fetch("https://exp.host/--/api/v2/push/send", {
@@ -113,14 +115,30 @@ export async function POST(req: NextRequest) {
         },
         body: JSON.stringify(expoMessages),
       });
-      if (resp.ok) expoSent = expoMessages.length;
-    } catch {
-      // best-effort
+      const json = await resp.json();
+      expoTickets = json.data ?? json.errors ?? json;
+      // Count tickets that came back "ok"
+      if (Array.isArray(json.data)) {
+        expoSent = json.data.filter((t: { status?: string }) => t.status === "ok").length;
+        const firstError = json.data.find(
+          (t: { status?: string; message?: string; details?: { error?: string } }) =>
+            t.status === "error",
+        ) as { message?: string; details?: { error?: string } } | undefined;
+        if (firstError) {
+          expoError = `${firstError.details?.error || ""}: ${firstError.message || ""}`.trim();
+        }
+      } else if (json.errors) {
+        expoError = JSON.stringify(json.errors).slice(0, 300);
+      }
+    } catch (err) {
+      expoError = `fetch failed: ${String(err).slice(0, 200)}`;
     }
   }
 
   return NextResponse.json({
     ok: true,
     sent: { web: webSent, expo: expoSent },
+    expoError,
+    expoTickets,
   });
 }
