@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
-import { getTwilioClient } from "@/lib/twilio";
+import { getCachedTwilioBalance } from "@/lib/twilio";
 
 // ---------------------------------------------------------------------------
 // Health status API — powers the /health dashboard page.
@@ -119,31 +119,28 @@ export async function GET() {
   const tCompleted = tJobs?.filter((j) => j.status === "completed") ?? [];
   const tRevenue = tCompleted.reduce((s, j) => s + Number(j.price || 0), 0);
 
-  // ---- Twilio balance ----
+  // ---- Twilio balance (cached — see getCachedTwilioBalance) ----
   let twilioBalance: number | null = null;
   let twilioCurrency = "USD";
   let twilioStatus: ServiceStatus = "unknown";
   let twilioDetail = "Not checked";
-  try {
-    const sid = process.env.TWILIO_ACCOUNT_SID;
-    if (sid) {
-      const bal = await getTwilioClient().api.v2010.accounts(sid).balance.fetch();
-      twilioBalance = parseFloat(bal.balance);
-      twilioCurrency = bal.currency || "USD";
-      if (twilioBalance < 5) {
-        twilioStatus = "critical";
-        twilioDetail = `Low balance: $${twilioBalance.toFixed(2)} — add funds soon`;
-      } else if (twilioBalance < 20) {
-        twilioStatus = "warning";
-        twilioDetail = `Running low: $${twilioBalance.toFixed(2)}`;
-      } else {
-        twilioStatus = "healthy";
-        twilioDetail = `Balance: $${twilioBalance.toFixed(2)}`;
-      }
+  const cachedBal = await getCachedTwilioBalance();
+  if (cachedBal) {
+    twilioBalance = cachedBal.balance;
+    twilioCurrency = cachedBal.currency;
+    if (twilioBalance < 5) {
+      twilioStatus = "critical";
+      twilioDetail = `Low balance: $${twilioBalance.toFixed(2)} — add funds soon`;
+    } else if (twilioBalance < 20) {
+      twilioStatus = "warning";
+      twilioDetail = `Running low: $${twilioBalance.toFixed(2)}`;
+    } else {
+      twilioStatus = "healthy";
+      twilioDetail = `Balance: $${twilioBalance.toFixed(2)}`;
     }
-  } catch (err) {
+  } else {
     twilioStatus = "warning";
-    twilioDetail = `Could not fetch balance: ${String(err).slice(0, 80)}`;
+    twilioDetail = "Could not fetch balance";
   }
 
   // ---- Supabase status ----

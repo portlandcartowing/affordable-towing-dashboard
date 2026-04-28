@@ -4,6 +4,7 @@ import MessagesPanel from "@/app/call-center/components/MessagesPanel";
 import EditableCustomerName from "@/components/calls/EditableCustomerName";
 import DispositionChanger from "@/components/calls/DispositionChanger";
 import AudioPlayer from "@/components/calls/AudioPlayer";
+import CallHistoryItem from "@/components/customers/CallHistoryItem";
 import EditablePrice from "@/components/jobs/EditablePrice";
 import EditableAddress from "@/components/jobs/EditableAddress";
 import SendReviewButton from "@/components/customers/SendReviewButton";
@@ -122,26 +123,35 @@ export default async function CustomerProfilePage({
             <ul className="divide-y divide-slate-100">
               {calls.map((call) => (
                 <li key={call.id} className="px-5 py-3 space-y-2 text-sm">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="font-medium text-slate-900">
-                        {formatTime(call.started_at ?? call.created_at)}
+                  <CallHistoryItem
+                    transcript={call.transcript}
+                    aiSummary={call.ai_summary}
+                  >
+                    {({ expanded, onToggle }) => (
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="font-medium text-slate-900">
+                            {formatTime(call.started_at ?? call.created_at)}
+                          </div>
+                          <div className="text-xs text-slate-500 truncate">
+                            {call.ai_summary || call.transcript?.slice(0, 80) || "No summary"}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs shrink-0">
+                          <span className="text-slate-500">{call.source || "—"}</span>
+                          <DispositionChanger callId={call.id} initialValue={call.disposition} size="sm" />
+                          <button
+                            type="button"
+                            onClick={onToggle}
+                            aria-expanded={expanded}
+                            className="text-blue-600 hover:underline"
+                          >
+                            {expanded ? "Hide ▾" : "View ▸"}
+                          </button>
+                        </div>
                       </div>
-                      <div className="text-xs text-slate-500 truncate">
-                        {call.ai_summary || call.transcript?.slice(0, 80) || "No summary"}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3 text-xs shrink-0">
-                      <span className="text-slate-500">{call.source || "—"}</span>
-                      <DispositionChanger callId={call.id} initialValue={call.disposition} size="sm" />
-                      <Link
-                        href="/calls"
-                        className="text-blue-600 hover:underline"
-                      >
-                        View →
-                      </Link>
-                    </div>
-                  </div>
+                    )}
+                  </CallHistoryItem>
                   {call.recording_url && (
                     <AudioPlayer src={call.recording_url} />
                   )}

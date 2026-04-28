@@ -1,17 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
-import { getTwilioClient, twilioNumber } from "@/lib/twilio";
+import { getTwilioClient, twilioNumber, getCachedTwilioBalance } from "@/lib/twilio";
 import { logError } from "@/lib/errorLog";
 
 async function fetchTwilioBalance(): Promise<number | null> {
-  try {
-    const sid = process.env.TWILIO_ACCOUNT_SID;
-    if (!sid) return null;
-    const bal = await getTwilioClient().api.v2010.accounts(sid).balance.fetch();
-    return parseFloat(bal.balance);
-  } catch {
-    return null;
-  }
+  const bal = await getCachedTwilioBalance();
+  return bal ? bal.balance : null;
 }
 
 // ---------------------------------------------------------------------------
