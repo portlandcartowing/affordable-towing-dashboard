@@ -89,13 +89,92 @@ export async function getCampaignPerformance(range: DateRange): Promise<Campaign
 }
 
 // ---------------------------------------------------------------------------
-// Google Ads API integration — STUB
-// ---------------------------------------------------------------------------
-// Real implementation will use google-ads-api / OAuth refresh token and
-// upsert rows into the `ad_spend_daily` table. Not implemented yet.
+// Google Ads API → ad_spend_daily sync
 // ---------------------------------------------------------------------------
 
-export async function syncGoogleAdsSpend(_range: DateRange): Promise<{ ok: boolean; synced: number }> {
-  // TODO: fetch from Google Ads API and upsert into ad_spend_daily
-  return { ok: false, synced: 0 };
+import { GoogleAdsApi } from "google-ads-api";
+
+function getCustomer() {
+  const {
+    GOOGLE_ADS_CLIENT_ID,
+    GOOGLE_ADS_CLIENT_SECRET,
+    GOOGLE_ADS_DEVELOPER_TOKEN,
+    GOOGLE_ADS_REFRESH_TOKEN,
+    GOOGLE_ADS_LOGIN_CUSTOMER_ID,
+    GOOGLE_ADS_CUSTOMER_ID,
+  } = process.env;
+
+  if (
+    !GOOGLE_ADS_CLIENT_ID ||
+    !GOOGLE_ADS_CLIENT_SECRET ||
+    !GOOGLE_ADS_DEVELOPER_TOKEN ||
+    !GOOGLE_ADS_REFRESH_TOKEN ||
+    !GOOGLE_ADS_CUSTOMER_ID
+  ) {
+    throw new Error("Missing GOOGLE_ADS_* env vars");
+  }
+
+  const client = new GoogleAdsApi({
+    client_id: GOOGLE_ADS_CLIENT_ID,
+    client_secret: GOOGLE_ADS_CLIENT_SECRET,
+    developer_token: GOOGLE_ADS_DEVELOPER_TOKEN,
+  });
+
+  return client.Customer({
+    customer_id: GOOGLE_ADS_CUSTOMER_ID,
+    login_customer_id: GOOGLE_ADS_LOGIN_CUSTOMER_ID,
+    refresh_token: GOOGLE_ADS_REFRESH_TOKEN,
+  });
+}
+
+export async function syncGoogleAdsSpend(range: DateRange): Promise<{ ok: boolean; synced: number; error?: string }> {
+  try {
+    const customer = getCustomer();
+
+    const query = `
+      SELECT
+        segments.date,
+        campaign.name,
+        metrics.cost_micros,
+        metrics.clicks,
+        metrics.conversions
+      FROM campaign
+      WHERE segments.date BETWEEN '${range.from}' AND '${range.to}'
+    `;
+
+    const rows = await customer.query(query);
+
+    const aggregated = new Map<string, { date: string; campaign: string; cost: number; clicks: number; conversions: number }>();
+    for (const r of rows) {
+      const date = r.segments?.date as string;
+      const campaign = (r.campaign?.name as string) || "(unknown)";
+      const costMicros = Number(r.metrics?.cost_micros ?? 0);
+      const clicks = Number(r.metrics?.clicks ?? 0);
+      const conversions = Number(r.metrics?.conversions ?? 0);
+      if (!date) continue;
+      const key = `${date}|${campaign}`;
+      const existing = aggregated.get(key) ?? { date, campaign, cost: 0, clicks: 0, conversions: 0 };
+      existing.cost += costMicros / 1_000_000;
+      existing.clicks += clicks;
+      existing.conversions += conversions;
+      aggregated.set(key, existing);
+    }
+
+    const upsertRows = Array.from(aggregated.values()).map((r) => ({
+      ...r,
+      cost: Math.round(r.cost * 100) / 100,
+      conversions: Math.round(r.conversions),
+    }));
+
+    if (upsertRows.length === 0) return { ok: true, synced: 0 };
+
+    const { error } = await supabase
+      .from("ad_spend_daily")
+      .upsert(upsertRows, { onConflict: "date,campaign" });
+
+    if (error) return { ok: false, synced: 0, error: error.message };
+    return { ok: true, synced: upsertRows.length };
+  } catch (err) {
+    return { ok: false, synced: 0, error: err instanceof Error ? err.message : String(err) };
+  }
 }
