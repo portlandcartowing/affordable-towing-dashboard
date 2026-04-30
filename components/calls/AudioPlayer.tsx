@@ -56,17 +56,14 @@ export default function AudioPlayer({ src }: { src: string }) {
     else el.pause();
   };
 
-  const handleScrubInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = parseFloat(e.target.value);
     setCurrent(v);
+    const el = audioRef.current;
+    if (el) el.currentTime = v;
   };
 
-  const handleScrubCommit = () => {
-    const el = audioRef.current;
-    if (!el) return;
-    el.currentTime = current;
-    setSeeking(false);
-  };
+  const endSeek = () => setSeeking(false);
 
   const pct = duration > 0 ? (current / duration) * 100 : 0;
 
@@ -100,12 +97,12 @@ export default function AudioPlayer({ src }: { src: string }) {
           max={duration || 0}
           step={0.1}
           value={current}
-          onChange={handleScrubInput}
+          onChange={handleScrubChange}
           onMouseDown={() => setSeeking(true)}
           onTouchStart={() => setSeeking(true)}
-          onMouseUp={handleScrubCommit}
-          onTouchEnd={handleScrubCommit}
-          onKeyUp={handleScrubCommit}
+          onMouseUp={endSeek}
+          onTouchEnd={endSeek}
+          onKeyUp={endSeek}
           disabled={!ready}
           className="flex-1 h-1.5 appearance-none cursor-pointer rounded-full bg-slate-200 disabled:opacity-50 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:shadow [&::-moz-range-thumb]:w-3.5 [&::-moz-range-thumb]:h-3.5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-blue-600 [&::-moz-range-thumb]:border-0"
           style={{
