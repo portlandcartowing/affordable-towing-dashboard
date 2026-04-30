@@ -175,18 +175,30 @@ export async function syncGoogleAdsSpend(range: DateRange): Promise<{ ok: boolea
     if (error) return { ok: false, synced: 0, error: error.message };
     return { ok: true, synced: upsertRows.length };
   } catch (err) {
-    let errorMsg: string;
-    if (err instanceof Error) {
-      errorMsg = err.message;
-    } else if (err && typeof err === "object") {
+    return { ok: false, synced: 0, error: serializeDeep(err) };
+  }
+}
+
+function serializeDeep(value: unknown): string {
+  const seen = new WeakSet();
+  function expand(v: unknown): unknown {
+    if (v === null || typeof v !== "object") return v;
+    if (seen.has(v as object)) return "[Circular]";
+    seen.add(v as object);
+    if (Array.isArray(v)) return v.map(expand);
+    const out: Record<string, unknown> = {};
+    for (const k of Object.getOwnPropertyNames(v)) {
       try {
-        errorMsg = JSON.stringify(err, Object.getOwnPropertyNames(err));
+        out[k] = expand((v as Record<string, unknown>)[k]);
       } catch {
-        errorMsg = String(err);
+        out[k] = "[unreadable]";
       }
-    } else {
-      errorMsg = String(err);
     }
-    return { ok: false, synced: 0, error: errorMsg };
+    return out;
+  }
+  try {
+    return JSON.stringify(expand(value));
+  } catch {
+    return String(value);
   }
 }
