@@ -175,6 +175,18 @@ export async function syncGoogleAdsSpend(range: DateRange): Promise<{ ok: boolea
     if (error) return { ok: false, synced: 0, error: error.message };
     return { ok: true, synced: upsertRows.length };
   } catch (err) {
-    return { ok: false, synced: 0, error: err instanceof Error ? err.message : String(err) };
+    let errorMsg: string;
+    if (err instanceof Error) {
+      errorMsg = err.message;
+    } else if (err && typeof err === "object") {
+      try {
+        errorMsg = JSON.stringify(err, Object.getOwnPropertyNames(err));
+      } catch {
+        errorMsg = String(err);
+      }
+    } else {
+      errorMsg = String(err);
+    }
+    return { ok: false, synced: 0, error: errorMsg };
   }
 }
